@@ -1,4 +1,5 @@
 import { quantile } from './flowLayout';
+import { profileFor, type Segment } from '@/lib/segmentSession';
 import { sessionEndOf, SCAN_MINUTES, type FlowStock, type FlowWindow, type MarketFlow } from './marketFlowModel';
 
 /**
@@ -10,7 +11,6 @@ import { sessionEndOf, SCAN_MINUTES, type FlowStock, type FlowWindow, type Marke
 export const MINUTE = 60_000;
 /** India Standard Time is UTC+5:30, with no daylight saving. */
 const IST_OFFSET = 330 * MINUTE;
-const OPEN_MINUTE = 9 * 60 + 15;
 
 /** One underlying's line: the window's start at 0%, then one point per 1-minute candle, at the candle's close. */
 export interface FlowLine {
@@ -21,10 +21,14 @@ export interface FlowLine {
   v: number[];
 }
 
-/** The span the chart's time axis covers: the whole session for the day; the last hour or 15 minutes read, ending no later than 15:30. */
-export function chartSpan(flow: Pick<MarketFlow, 'date' | 'window' | 'futures'>): [number, number] {
-  const open = Date.parse(`${flow.date}T00:00:00+05:30`) + OPEN_MINUTE * MINUTE;
-  const close = sessionEndOf(flow.date);
+/**
+ * The span the chart's time axis covers: the whole session for the day (09:15 to 15:30 for F&O, 09:00 to MCX's close for commodities);
+ * the last hour or 15 minutes read, ending no later than the session's end.
+ */
+export function chartSpan(flow: Pick<MarketFlow, 'date' | 'window' | 'futures'> & { segment?: Segment }): [number, number] {
+  const session = profileFor(flow.segment);
+  const open = Date.parse(`${flow.date}T00:00:00+05:30`) + session.openMinute * MINUTE;
+  const close = sessionEndOf(flow.date, session.readingEndMinuteFor(Date.parse(`${flow.date}T12:00:00+05:30`)));
   if (flow.window === 'day') return [open, close];
   const end = Math.min(close, flow.futures.latestAt ?? close);
   return [end - SCAN_MINUTES[flow.window] * MINUTE, end];

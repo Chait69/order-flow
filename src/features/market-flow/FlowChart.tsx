@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
-import { isMarketSessionTime } from '@/lib/marketSession';
+import { profileFor } from '@/lib/segmentSession';
 import { stackLabels } from './flowLayout';
 import { bandOf, changeTicks, chartReach, chartSpan, endLabel, lineOf, MINUTE, namedLines, pathOf, timeTicks, type FlowLine } from './flowChartModel';
 import { useFlowFocus, type FocusState } from './flowFocus';
@@ -141,7 +141,7 @@ export const FlowChart = memo(function FlowChart({ flow, settings, width, height
   const yTicks = changeTicks(reach, half, flow.window);
   const xTicks = useMemo(() => timeTicks(t0, t1, xT1 - xT0, flow.window), [t0, t1, xT1, xT0, flow.window]);
   const now = Date.now();
-  const nowX = flow.window === 'day' && isMarketSessionTime(now) && now > t0 && now < t1 ? geo.xOf(now) : null;
+  const nowX = flow.window === 'day' && profileFor(flow.segment).isSessionTime(now) && now > t0 && now < t1 ? geo.xOf(now) : null;
 
   // ── Focus: lit lines drawn into the overlay; the crosshair moved by hand ──
   const litRef = useRef<SVGGElement>(null);

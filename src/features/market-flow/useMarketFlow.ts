@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { profileFor, type Segment } from '@/lib/segmentSession';
 import { getThemeDirectory, type Underlying } from '@/lib/underlyings';
 import { useFuturesFeed, useMarketFeed } from './feed';
 import { buildMarketFlow, nearSeries, type FlowSettings, type MarketFlow } from './marketFlowModel';
@@ -18,8 +19,9 @@ export const COMMIT_MS = 750;
  * is the chart's reference line), then the biggest spot movers. Arrivals are
  * gathered and committed at most every COMMIT_MS.
  */
-export function useMarketFlow(universe: readonly Underlying[], settings: FlowSettings) {
-  const data = useMarketFeed();
+export function useMarketFlow(universe: readonly Underlying[], settings: FlowSettings, segment: Segment = 'fno') {
+  const data = useMarketFeed(segment);
+  const session = profileFor(segment);
   const market = data.market;
   const sectorLabels = useMemo(() => {
     const labels = getThemeDirectory()?.sectors ?? {};
@@ -33,23 +35,23 @@ export function useMarketFlow(universe: readonly Underlying[], settings: FlowSet
     for (const item of universe) {
       if (settings.scope === 'stocks' && item.kind !== 'stock') continue;
       if (settings.scope === 'indices' && item.kind !== 'index') continue;
-      const series = nearSeries(market, item.symbol);
+      const series = nearSeries(market, item.symbol, Date.now(), session);
       if (!series) continue;
       const move = item.symbol === 'NIFTY' ? Infinity : series.spotPrevClose ? Math.abs(series.spot / series.spotPrevClose - 1) : 0;
       rows.push({ symbol: item.symbol, move });
     }
     return rows.sort((a, b) => b.move - a.move || a.symbol.localeCompare(b.symbol)).map(row => row.symbol);
-  }, [market, universe, settings.scope]);
+  }, [market, universe, settings.scope, session]);
 
-  const futures = useFuturesFeed(symbols, Boolean(market), data.status);
+  const futures = useFuturesFeed(symbols, Boolean(market), data.status, segment);
   const live = useMemo(() => ({ series: futures.series, failed: futures.failed }), [futures.series, futures.failed]);
   const committed = useThrottled(live, COMMIT_MS, futures.read >= futures.total);
 
   // The settings that change the chart only (lines, named) do not re-deal the board.
   const { window: win, scope, floorPct } = settings;
   const flow: MarketFlow | null = useMemo(
-    () => (market ? buildMarketFlow(market, committed.series, universe, sectorLabels, { window: win, scope, floorPct, named: null, lines: 'all' }, { failed: committed.failed }) : null),
-    [market, committed, universe, sectorLabels, win, scope, floorPct],
+    () => (market ? buildMarketFlow(market, committed.series, universe, sectorLabels, { window: win, scope, floorPct, named: null, lines: 'all' }, { failed: committed.failed, segment }) : null),
+    [market, committed, universe, sectorLabels, win, scope, floorPct, segment],
   );
 
   return {

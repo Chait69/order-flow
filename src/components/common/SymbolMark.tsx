@@ -47,7 +47,7 @@ export function symbolMonogram(symbol: string): string {
 
 interface SymbolMarkProps {
   symbol: string;
-  kind?: 'index' | 'stock';
+  kind?: 'index' | 'stock' | 'commodity';
   /** Edge of the square, in pixels. */
   size?: number;
   /** Overrides the held artwork. The monogram stays as the fallback. */

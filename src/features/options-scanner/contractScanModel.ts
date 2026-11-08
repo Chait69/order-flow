@@ -69,7 +69,7 @@ export interface ContractQuote {
 
 export interface ContractSeries {
   symbol: string;
-  kind: 'index' | 'stock';
+  kind: 'index' | 'stock' | 'commodity';
   expiry: string;
   lot: number;
   lotSource: 'catalogue' | 'api';
@@ -131,7 +131,7 @@ export function parseMarketFile(body: unknown): ContractMarket | null {
   for (const raw of file.series as unknown[]) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
-    if (typeof item.s !== 'string' || (item.k !== 'index' && item.k !== 'stock') || typeof item.e !== 'string' || !DATE.test(item.e)) continue;
+    if (typeof item.s !== 'string' || (item.k !== 'index' && item.k !== 'stock' && item.k !== 'commodity') || typeof item.e !== 'string' || !DATE.test(item.e)) continue;
     if (!finite(item.lot) || !Number.isInteger(item.lot) || item.lot <= 0 || !finite(item.t) || !finite(item.sp) || item.sp <= 0 || !Array.isArray(item.r)) continue;
     const quotes = (item.r as unknown[]).map(parseRow).filter((quote): quote is ContractQuote => quote !== null);
     series.push({
@@ -174,7 +174,7 @@ export function pickBaselineMinute(market: ContractMarket, window: IntradayWindo
 export interface ContractRow {
   id: string;
   symbol: string;
-  kind: 'index' | 'stock';
+  kind: 'index' | 'stock' | 'commodity';
   expiry: string;
   strike: number;
   side: ContractSide;

@@ -15,7 +15,7 @@
 export interface UnderlyingLogo {
   file: string;
   name: string;
-  kind?: 'index' | 'stock';
+  kind?: 'index' | 'stock' | 'commodity';
   /** Wikidata item the mark was resolved through. */
   wikidata?: string;
   /** Commons file name, when the mark came from Commons. */

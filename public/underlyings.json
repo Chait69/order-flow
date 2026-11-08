@@ -94,6 +94,18 @@
    "diversified": {
     "label": "Diversified",
     "count": 3
+   },
+   "mcx-energy": {
+    "label": "Energy",
+    "count": 4
+   },
+   "mcx-bullion": {
+    "label": "Bullion",
+    "count": 4
+   },
+   "mcx-base-metals": {
+    "label": "Base Metals",
+    "count": 2
    }
   },
   "baskets": {
@@ -2312,7 +2324,99 @@
    "kind": "stock",
    "exch": "NSE",
    "sector": "pharma-healthcare"
+  },
+  {
+   "symbol": "CRUDE",
+   "name": "Crude Oil",
+   "apiKey": "MCX:CRUDE",
+   "lot": 100,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-energy"
+  },
+  {
+   "symbol": "CRUDMI",
+   "name": "Crude Oil Mini",
+   "apiKey": "MCX:CRUDMI",
+   "lot": 10,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-energy"
+  },
+  {
+   "symbol": "NATGAS",
+   "name": "Natural Gas",
+   "apiKey": "MCX:NATGAS",
+   "lot": 1250,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-energy"
+  },
+  {
+   "symbol": "NATGMI",
+   "name": "Natural Gas Mini",
+   "apiKey": "MCX:NATGMI",
+   "lot": 250,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-energy"
+  },
+  {
+   "symbol": "GOLD",
+   "name": "Gold",
+   "apiKey": "MCX:GOLD",
+   "lot": 1000,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-bullion"
+  },
+  {
+   "symbol": "GOLDMI",
+   "name": "Gold Mini",
+   "apiKey": "MCX:GOLDMI",
+   "lot": 100,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-bullion"
+  },
+  {
+   "symbol": "SILVER",
+   "name": "Silver",
+   "apiKey": "MCX:SILVER",
+   "lot": 30,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-bullion"
+  },
+  {
+   "symbol": "SILMIN",
+   "name": "Silver Mini",
+   "apiKey": "MCX:SILMIN",
+   "lot": 5,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-bullion"
+  },
+  {
+   "symbol": "COPPER",
+   "name": "Copper",
+   "apiKey": "MCX:COPPER",
+   "lot": 2500,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-base-metals"
+  },
+  {
+   "symbol": "ZINC",
+   "name": "Zinc",
+   "apiKey": "MCX:ZINC",
+   "lot": 5000,
+   "kind": "commodity",
+   "exch": "MCX",
+   "sector": "mcx-base-metals"
   }
  ],
- "note": "F&O underlyings: symbol, name, exchange key (EXCHANGE:SYMBOL), lot size, kind, sector. Providers map these symbols to their own instrument ids."
+ "note": "F&O underlyings: symbol, name, exchange key (EXCHANGE:SYMBOL), lot size, kind, sector. Providers map these symbols to their own instrument ids.",
+ "mcxCount": 10,
+ "mcxNote": "MCX commodities (segment 'mcx', its own session clock). Lots are the contract sizes the India F&O app uses; symbols are ICICI Breeze's MCX codes."
 }

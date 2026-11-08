@@ -1,5 +1,5 @@
 import type { Underlying } from '@/lib/underlyings';
-import { isExpirySettled, marketSessionBounds } from '@/lib/marketSession';
+import { FNO_SESSION, profileFor, type Segment, type SessionProfile } from '@/lib/segmentSession';
 import type { ContractMarket, ContractSeries } from '../options-scanner/contractScanModel';
 import { readFuturesWindow, type FuturesBuildUp, type FuturesReading, type FuturesSeries } from '../options-scanner/futuresModel';
 
@@ -117,7 +117,7 @@ export function oiProfile(series: Pick<ContractSeries, 'quotes' | 'spot'>, perSi
 export interface FlowStock {
   symbol: string;
   name: string;
-  kind: 'index' | 'stock';
+  kind: 'index' | 'stock' | 'commodity';
   sector: string;
   sectorLabel: string;
   lot: number;
@@ -181,6 +181,8 @@ export interface FlowSector {
 export interface MarketFlow {
   asOf: number;
   date: string;
+  /** The exchange segment this board was read from (its session clock); F&O when absent. */
+  segment?: Segment;
   window: FlowWindow;
   floorPct: number;
   stocks: FlowStock[];
@@ -202,6 +204,8 @@ export interface FlowBuildOptions {
   failed?: ReadonlySet<string>;
   /** The clock, for which expiries have settled. */
   now?: number;
+  /** The exchange segment the board reads: its own session decides which expiry is live and where the day's readings end. NSE/BSE F&O by default. */
+  segment?: Segment;
 }
 
 export const BUCKET_SIDE: Record<FlowBucket, Exclude<FlowSide, 'rangebound'>> = {
@@ -223,14 +227,14 @@ const sign = (value: number | null | undefined): -1 | 0 | 1 => (value == null ||
  * close is the settled series' last print, so on expiry day the next series
  * is taken. Only when nothing else is listed is the expiring one kept.
  */
-export function nearSeries(market: ContractMarket, symbol: string, now: number = Date.now()): ContractSeries | null {
+export function nearSeries(market: ContractMarket, symbol: string, now: number = Date.now(), session: SessionProfile = FNO_SESSION): ContractSeries | null {
   let best: ContractSeries | null = null;
   let expiring: ContractSeries | null = null;
   const clock = Math.max(now, market.at);
   for (const series of market.series) {
     if (series.symbol !== symbol || series.expiry < market.date) continue;
     // The derivatives close itself counts: a file stamped 15:40 on expiry day is the expiring series' final print.
-    if (series.expiry === market.date && (isExpirySettled(series.expiry, clock) || clock >= marketSessionBounds(Date.parse(`${market.date}T12:00:00+05:30`)).close)) {
+    if (series.expiry === market.date && (session.isExpirySettled(series.expiry, clock) || clock >= session.sessionBounds(Date.parse(`${market.date}T12:00:00+05:30`)).close)) {
       expiring = series;
       continue;
     }
@@ -242,9 +246,9 @@ export function nearSeries(market: ContractMarket, symbol: string, now: number =
 /** Epoch ms of a minute of the day on an IST date. */
 export const sessionEndOf = (date: string, minuteOfDay: number = SESSION_END_MINUTE) => Date.parse(`${date}T00:00:00+05:30`) + minuteOfDay * MINUTE;
 
-/** A future's candles up to 15:30 IST on its session date: what the readings and the chart both span. */
-export function trimToSession(series: FuturesSeries, date: string): FuturesSeries {
-  const end = sessionEndOf(date);
+/** A future's candles up to the session's last reading minute on its date (15:30 IST for F&O, MCX's close for commodities): what the readings and the chart both span. */
+export function trimToSession(series: FuturesSeries, date: string, session: SessionProfile = FNO_SESSION): FuturesSeries {
+  const end = sessionEndOf(date, session.readingEndMinuteFor(Date.parse(`${date}T12:00:00+05:30`)));
   const last = series.candles.at(-1);
   if (!last || last.at + MINUTE <= end) return series;
   return { ...series, candles: series.candles.filter(candle => candle.at + MINUTE <= end) };
@@ -399,6 +403,7 @@ export function buildMarketFlow(
 ): MarketFlow {
   const floor = floorFor(settings);
   const now = options.now ?? Date.now();
+  const session = profileFor(options.segment);
   const failedSet = options.failed;
   const { window } = settings;
   const inScope = (item: Underlying) => settings.scope === 'all' || (settings.scope === 'stocks' ? item.kind === 'stock' : item.kind === 'index');
@@ -406,10 +411,10 @@ export function buildMarketFlow(
 
   for (const item of universe) {
     if (!inScope(item)) continue;
-    const series = nearSeries(market, item.symbol, now);
+    const series = nearSeries(market, item.symbol, now, session);
     if (!series) continue;
     const raw = futures.get(item.symbol);
-    const held = raw ? trimToSession(raw, market.date) : raw;
+    const held = raw ? trimToSession(raw, market.date, session) : raw;
     const futuresState: FlowStock['futures'] = held === undefined ? 'pending' : held ? 'read' : failedSet?.has(item.symbol) ? 'failed' : 'unavailable';
     const read = (w: 'day' | '1h' | '15m') => (held ? readFuturesWindow(held, w) : null);
     const fut = read(window);
@@ -516,7 +521,7 @@ export function buildMarketFlow(
     ? { bullish: featuredOf(bullish, 'LONG_BUILD'), bearish: featuredOf(bearish, 'SHORT_BUILD') }
     : { bullish: [], bearish: [] };
   return {
-    asOf: market.at, date: market.date, window, floorPct: floor, stocks, sectors, bullish, bearish, rangebound, unread, buckets,
+    asOf: market.at, date: market.date, segment: options.segment ?? 'fno', window, floorPct: floor, stocks, sectors, bullish, bearish, rangebound, unread, buckets,
     featured,
     futures: { read, unavailable, failed, pending, total, latestAt },
     provisional: pending > 0,

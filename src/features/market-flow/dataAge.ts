@@ -1,4 +1,5 @@
-import { getLatestTradingSessionDate, marketParts } from '@/lib/marketSession';
+import { marketParts } from '@/lib/marketSession';
+import { profileFor, type Segment } from '@/lib/segmentSession';
 
 /**
  * How old the board's market reading is, in words the page can print.
@@ -14,7 +15,7 @@ export interface FlowDataAge {
   date: string;
 }
 
-export function describeDataAge(readingAt: number, now: number = Date.now()): FlowDataAge {
+export function describeDataAge(readingAt: number, now: number = Date.now(), segment: Segment = 'fno'): FlowDataAge {
   const date = marketParts(readingAt).dateKey;
-  return { aged: date < getLatestTradingSessionDate(new Date(now)), date };
+  return { aged: date < profileFor(segment).latestSessionDate(new Date(now)), date };
 }

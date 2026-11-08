@@ -31,7 +31,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodeSeries, marketFile } from './marketFile.mjs';
 import { createProvider } from './providers/index.mjs';
-import { filterLiveExpiries, getLatestTradingSessionDate, isMarketSessionTime, marketParts } from '../src/lib/marketSession.ts';
+import { marketParts } from '../src/lib/marketSession.ts';
+import { SESSION_PROFILES, segmentOfExchange } from '../src/lib/segmentSession.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.PORT) || 8787;
@@ -53,39 +54,63 @@ const bySymbol = new Map(universe.map(u => [u.symbol, u]));
 // `--recorded` (npm run dev:recorded / start:recorded) and `--archive` (npm run dev:archive) are shortcuts for MF_PROVIDER.
 const flagged = ['recorded', 'archive'].find(id => process.argv.includes(`--${id}`));
 const provider = createProvider(universe, flagged);
-const now = () => (provider.now ? provider.now() : Date.now());
 const SCAN_DIR = path.join(DATA_DIR, provider.id);
 
-// ── Collector ─────────────────────────────────────────────────────────────
+// ── Collectors: one per segment, each on its own clock ─────────────────────────
 
-/** Expiries are read once a session: they change only when a contract lists or expires. */
-const ladderCache = { session: '', bySymbol: new Map() };
-const state = { ready: false, building: false, latestJson: null, latest: null, lastBuild: null, lastError: null };
+/**
+ * The board has one collector per exchange segment. `fno` (NSE and BSE F&O) is what the server always did; `mcx` (commodities) runs the
+ * same build on MCX's session: its own session date, live hours, expiry cut-off, and its own stored minutes. A provider says which
+ * segments it can supply (`provider.segments`, default `['fno']`); a segment it does not supply is simply not served, never faked.
+ */
+const SEGMENTS = provider.segments ?? ['fno'];
+const clockOf = segment => (provider.now ? provider.now(segment) : Date.now());
+
+function makeCollector(id) {
+  const profile = SESSION_PROFILES[id];
+  const rows = universe.filter(u => segmentOfExchange(u.exch) === id);
+  return {
+    id, profile, rows,
+    enabled: SEGMENTS.includes(id) && rows.length > 0,
+    /** The F&O segment keeps its original folder, so a restart still finds the day's stored minutes. */
+    dir: id === 'fno' ? SCAN_DIR : path.join(SCAN_DIR, id),
+    /** Expiries are read once a session: they change only when a contract lists or expires. */
+    ladderCache: { session: '', bySymbol: new Map() },
+    state: { ready: false, building: false, latestJson: null, latest: null, lastBuild: null, lastError: null },
+    now() { return clockOf(id); },
+    isLive() { return provider.alwaysLive || profile.isSessionTime(Date.now()); },
+    session() { return profile.latestSessionDate(new Date(clockOf(id))); },
+  };
+}
+const collectors = { fno: makeCollector('fno'), mcx: makeCollector('mcx') };
+const collectorOf = segment => collectors[segment === 'mcx' ? 'mcx' : 'fno'];
+const collectorForSymbol = symbol => collectorOf(segmentOfExchange(bySymbol.get(symbol)?.exch));
 
 const hhmmOf = at => { const p = marketParts(at); return `${String(Math.floor(p.minuteOfDay / 60)).padStart(2, '0')}${String(p.minuteOfDay % 60).padStart(2, '0')}`; };
 
-/** Today's stored minutes, ascending, as [HHMM, epoch ms]: an index beside them, not a read of every file. */
-function readMinutes(date) {
-  try { return JSON.parse(fs.readFileSync(path.join(SCAN_DIR, date, 'index.json'), 'utf8')); } catch { return []; }
+/** A collector's stored minutes for a date, ascending, as [HHMM, epoch ms]: an index beside them, not a read of every file. */
+function readMinutes(c, date) {
+  try { return JSON.parse(fs.readFileSync(path.join(c.dir, date, 'index.json'), 'utf8')); } catch { return []; }
 }
-function storeMinute(date, at, json) {
-  const dir = path.join(SCAN_DIR, date);
+function storeMinute(c, date, at, json) {
+  const dir = path.join(c.dir, date);
   fs.mkdirSync(dir, { recursive: true });
   const hhmm = hhmmOf(at);
   fs.writeFileSync(path.join(dir, `${hhmm}.json`), json);
-  const minutes = readMinutes(date).filter(entry => entry[0] !== hhmm);
+  const minutes = readMinutes(c, date).filter(entry => entry[0] !== hhmm);
   minutes.push([hhmm, at]);
   minutes.sort((a, b) => a[1] - b[1]);
   fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify(minutes));
   return minutes;
 }
 
-async function build() {
-  if (state.building) return;
+async function build(c) {
+  const { state, ladderCache, profile } = c;
+  if (!c.enabled || state.building) return;
   state.building = true;
   const started = Date.now();
-  const clock = now();
-  const session = getLatestTradingSessionDate(new Date(clock));
+  const clock = c.now();
+  const session = profile.latestSessionDate(new Date(clock));
   if (ladderCache.session !== session) { ladderCache.session = session; ladderCache.bySymbol.clear(); }
   const series = [];
   const ladders = {};
@@ -93,19 +118,19 @@ async function build() {
   let firstError = null;
   let cursor = 0;
   const worker = async () => {
-    while (cursor < universe.length) {
-      const u = universe[cursor++];
+    while (cursor < c.rows.length) {
+      const u = c.rows[cursor++];
       try {
         let ladder = ladderCache.bySymbol.get(u.symbol);
         if (!ladder) {
           ladder = await provider.expiries(u);
           if (ladder.length) ladderCache.bySymbol.set(u.symbol, ladder);
         }
-        const live = filterLiveExpiries(ladder, clock);
+        const live = profile.filterLiveExpiries(ladder, clock);
         ladders[u.symbol] = live;
         if (!live[0]) continue;
         const chain = await provider.optionChain(u, live[0]);
-        const encoded = encodeSeries(u, { ...chain, expiry: chain.expiry || live[0] }, now());
+        const encoded = encodeSeries(u, { ...chain, expiry: chain.expiry || live[0] }, c.now());
         if (encoded) series.push(encoded); else failed.push(u.symbol);
       } catch (error) {
         failed.push(u.symbol);
@@ -116,24 +141,24 @@ async function build() {
   try {
     await Promise.all(Array.from({ length: WORKERS }, worker));
     if (!series.length) throw new Error(firstError ? `No underlying answered: ${firstError}` : 'No underlying answered.');
-    const at = now();
+    const at = c.now();
     const sorted = series.sort((a, b) => a.s.localeCompare(b.s));
     // Only a reading taken in session is a minute the windows can measure from.
-    const minutes = isMarketSessionTime(at)
-      ? storeMinute(session, at, JSON.stringify(marketFile({ at, date: session, series: sorted, minutes: [], ladders })))
-      : readMinutes(session);
+    const minutes = profile.isSessionTime(at)
+      ? storeMinute(c, session, at, JSON.stringify(marketFile({ at, date: session, series: sorted, minutes: [], ladders })))
+      : readMinutes(c, session);
     const file = marketFile({ at, date: session, series: sorted, minutes, ladders });
     state.latest = file;
     state.latestJson = JSON.stringify(file);
-    fs.mkdirSync(SCAN_DIR, { recursive: true });
-    fs.writeFileSync(path.join(SCAN_DIR, 'latest.json'), state.latestJson);
-    pruneOldDays(session);
+    fs.mkdirSync(c.dir, { recursive: true });
+    fs.writeFileSync(path.join(c.dir, 'latest.json'), state.latestJson);
+    pruneOldDays(c, session);
     state.lastBuild = { at, ms: Date.now() - started, series: series.length, failed: failed.length, failedSymbols: failed.slice(0, 20), firstError };
     state.lastError = null;
-    log(`market file: ${series.length} series, ${failed.length} failed, ${Date.now() - started} ms${firstError ? ` (first error: ${firstError})` : ''}`);
+    log(`${c.id} market file: ${series.length} series, ${failed.length} failed, ${Date.now() - started} ms${firstError ? ` (first error: ${firstError})` : ''}`);
   } catch (error) {
     // The detail (which may quote the provider's own error) stays in this log; the page gets a plain line.
-    log('market file failed:', String(error?.message || error));
+    log(`${c.id} market file failed:`, String(error?.message || error));
     state.lastError = { at: Date.now(), message: 'The data provider did not answer. The server log has the detail.' };
   } finally {
     state.building = false;
@@ -141,27 +166,26 @@ async function build() {
 }
 
 /** Earlier sessions' minutes are never read again: keep today only. */
-function pruneOldDays(today) {
-  if (!fs.existsSync(SCAN_DIR)) return;
-  for (const entry of fs.readdirSync(SCAN_DIR)) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(entry) && entry < today) fs.rmSync(path.join(SCAN_DIR, entry), { recursive: true, force: true });
+function pruneOldDays(c, today) {
+  if (!fs.existsSync(c.dir)) return;
+  for (const entry of fs.readdirSync(c.dir)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(entry) && entry < today) fs.rmSync(path.join(c.dir, entry), { recursive: true, force: true });
   }
 }
 
-/** Live (in session, or a provider that is always live): every minute, a few seconds past the boundary. Otherwise hourly. */
-function schedule() {
-  const live = provider.alwaysLive || isMarketSessionTime(Date.now());
-  const wait = live ? 60_000 - (Date.now() % 60_000) + 3_000 : 60 * 60_000;
-  setTimeout(async () => { await build(); schedule(); }, wait);
+/** Live (in this segment's session, or a provider that is always live): every minute, a few seconds past the boundary. Otherwise hourly. */
+function schedule(c) {
+  const wait = c.isLive() ? 60_000 - (Date.now() % 60_000) + 3_000 : 60 * 60_000;
+  setTimeout(async () => { await build(c); schedule(c); }, wait);
 }
 
 // ── Futures, on demand ──────────────────────────────────────────────────────
 
 const futuresCache = new Map();
-async function futuresFor(symbol, session) {
+async function futuresFor(c, symbol, session) {
   const key = `${symbol}|${session}`;
   const held = futuresCache.get(key);
-  const live = provider.alwaysLive || isMarketSessionTime(Date.now());
+  const live = c.isLive();
   if (held && (!live || Date.now() - held.at < FUTURES_KEEP_MS)) return held.value;
   const value = provider.futures(bySymbol.get(symbol), session).then(months => ({ symbol, session, months }));
   futuresCache.set(key, { at: Date.now(), value });
@@ -241,36 +265,54 @@ async function handle(req, res) {
   }
   if (p.includes('\0')) return send(res, 400, { error: 'Bad request.' });
 
+  // One answer per segment. `fno` is the original shape at the top level (older pages read only that); `segments` has each one.
+  const statusOf = c => ({
+    enabled: c.enabled, ready: c.state.ready, clock: c.now(), session: c.session(), live: Boolean(c.isLive()), open: c.profile.isSessionTime(c.now()),
+    market: c.state.latest ? { at: c.state.latest.t, date: c.state.latest.date, series: c.state.latest.series.length } : null,
+    lastBuild: c.state.lastBuild && { at: c.state.lastBuild.at, series: c.state.lastBuild.series, failed: c.state.lastBuild.failed },
+    lastError: c.state.lastError && { at: c.state.lastError.at, message: c.state.lastError.message }, underlyings: c.rows.length,
+  });
   if (p === '/api/status') {
+    const main = statusOf(collectors.fno);
     return send(res, 200, {
       provider: { id: provider.id, label: provider.label, alwaysLive: Boolean(provider.alwaysLive) },
-      ready: state.ready, clock: now(), session: getLatestTradingSessionDate(new Date(now())),
-      market: state.latest ? { at: state.latest.t, date: state.latest.date, series: state.latest.series.length } : null,
-      lastBuild: state.lastBuild && { at: state.lastBuild.at, series: state.lastBuild.series, failed: state.lastBuild.failed },
-      lastError: state.lastError && { at: state.lastError.at, message: state.lastError.message }, universe: universe.length,
+      ready: main.ready, clock: main.clock, session: main.session, market: main.market, lastBuild: main.lastBuild, lastError: main.lastError,
+      universe: universe.length,
+      segments: { fno: main, mcx: statusOf(collectors.mcx) },
     });
   }
 
+  // `?segment=mcx` picks the commodity board; the default is NSE/BSE F&O.
+  const segmentParam = url.searchParams.get('segment');
+  if (segmentParam !== null && segmentParam !== 'fno' && segmentParam !== 'mcx') return send(res, 400, { error: 'Unknown segment.' });
+  const c = collectorOf(segmentParam);
+  const unsupplied = () => send(res, 404, { error: `${provider.label} does not supply ${c.profile.label} data.` });
+
   if (p === '/api/market') {
-    if (!state.latestJson) return send(res, 503, { error: state.lastError?.message ?? 'The first market file is still being built.' }, 'application/json', { 'Retry-After': '5' });
-    return send(res, 200, state.latestJson);
+    if (!c.enabled) return unsupplied();
+    if (!c.state.latestJson) return send(res, 503, { error: c.state.lastError?.message ?? 'The first market file is still being built.' }, 'application/json', { 'Retry-After': '5' });
+    return send(res, 200, c.state.latestJson);
   }
   const minute = p.match(/^\/api\/market\/(\d{4}-\d{2}-\d{2})\/(\d{4})$/);
   if (minute) {
-    const file = path.join(SCAN_DIR, minute[1], `${minute[2]}.json`);
+    if (!c.enabled) return unsupplied();
+    const file = path.join(c.dir, minute[1], `${minute[2]}.json`);
     return fs.existsSync(file) ? serveFile(res, file, 'public, max-age=86400') : send(res, 404, { error: 'No such minute.' });
   }
 
   const futures = p.match(/^\/api\/futures\/([A-Za-z0-9&._-]{1,40})$/);
   if (futures) {
     const symbol = futures[1].toUpperCase();
-    // Only the current session: the page never asks for another, and no visitor can spend the provider's quota on history.
-    const current = getLatestTradingSessionDate(new Date(now()));
-    const session = url.searchParams.get('session') ?? current;
     if (!bySymbol.has(symbol)) return send(res, 404, { error: 'Unknown underlying.' });
+    // The symbol decides the segment, and so the clock: a commodity's current session is MCX's, not NSE's.
+    const owner = collectorForSymbol(symbol);
+    if (!owner.enabled) return send(res, 404, { error: `${provider.label} does not supply ${owner.profile.label} data.` });
+    // Only the current session: the page never asks for another, and no visitor can spend the provider's quota on history.
+    const current = owner.session();
+    const session = url.searchParams.get('session') ?? current;
     if (session !== current) return send(res, 400, { error: `Only the current session (${current}) is served.` });
     try {
-      return send(res, 200, await futuresFor(symbol, session));
+      return send(res, 200, await futuresFor(owner, symbol, session));
     } catch (error) {
       log(`futures ${symbol} failed:`, error?.message || error);
       return send(res, 502, { error: 'The data provider did not answer for this underlying.' });
@@ -289,23 +331,30 @@ async function handle(req, res) {
 }
 
 // Start from the file on disk so a restart serves at once.
-try {
-  state.latestJson = fs.readFileSync(path.join(SCAN_DIR, 'latest.json'), 'utf8');
-  state.latest = JSON.parse(state.latestJson);
-} catch { /* first run */ }
+for (const c of Object.values(collectors)) {
+  try {
+    c.state.latestJson = fs.readFileSync(path.join(c.dir, 'latest.json'), 'utf8');
+    c.state.latest = JSON.parse(c.state.latestJson);
+  } catch { /* first run */ }
+}
 
 const LOOPBACK = ['127.0.0.1', '::1', 'localhost'];
 server.listen(PORT, HOST, async () => {
   log(`Order Flow on http://${HOST.includes(':') ? `[${HOST}]` : HOST}:${PORT} · provider: ${provider.label} (${provider.id}) · ${universe.length} underlyings${AUTH ? ' · password on' : ''}`);
   if (!LOOPBACK.includes(HOST) && !AUTH) log('WARNING: listening beyond this machine with no password. Set MF_BASIC_AUTH=user:password, or put the server behind a proxy that signs people in.');
+  const active = Object.values(collectors).filter(c => c.enabled);
   try {
     await provider.init?.();
-    state.ready = true;
+    for (const c of active) c.state.ready = true;
   } catch (error) {
-    state.lastError = { at: Date.now(), message: `Provider failed to start: ${error?.message || error}` };
-    log(state.lastError.message);
+    for (const c of active) c.state.lastError = { at: Date.now(), message: `Provider failed to start: ${error?.message || error}` };
+    log(`Provider failed to start: ${error?.message || error}`);
     return;
   }
-  await build();
-  schedule();
+  for (const c of active) {
+    await build(c);
+    schedule(c);
+  }
+  const skipped = Object.values(collectors).filter(c => !c.enabled && c.rows.length);
+  if (skipped.length) log(`${provider.label} does not supply: ${skipped.map(c => `${c.profile.label} (${c.rows.length} underlyings)`).join(', ')}`);
 });

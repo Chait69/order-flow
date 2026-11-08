@@ -18,8 +18,8 @@ export interface Underlying {
   lot: number;
   /** Upcoming expiries captured with the catalogue, used as an offline fallback. */
   expiries?: string[];
-  kind: 'index' | 'stock';
-  exch: string;           // 'NSE' | 'BSE'
+  kind: 'index' | 'stock' | 'commodity';
+  exch: string;           // 'NSE' | 'BSE' | 'MCX'
   /**
    * Theme tags stamped in by scripts/build-underlyings.mjs from the taxonomy in
    * scripts/themes.mjs. Stocks only — indices are pinned in the picker already.

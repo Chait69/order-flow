@@ -169,6 +169,8 @@ export function createHttpProvider(universe, env = process.env, fetcher = global
   return {
     id: 'http',
     label: env.MF_HTTP_LABEL || 'Your API',
+    /** Segments this API supplies: NSE/BSE F&O by default; add `mcx` (MF_HTTP_SEGMENTS=fno,mcx) when it also answers for the commodity symbols. */
+    segments: String(env.MF_HTTP_SEGMENTS || 'fno').split(',').map(part => part.trim()).filter(Boolean),
 
     async init() {
       if (!base) throw new Error('Set MF_HTTP_BASE_URL to your API (see PROVIDERS.md, "Any API").');

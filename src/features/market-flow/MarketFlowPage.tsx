@@ -9,7 +9,7 @@ import type { Underlying } from '@/lib/underlyings';
 import { FlowBoard, type FlowLayout } from './FlowBoard';
 import { FlowStatus } from './FlowStatus';
 import { DEFAULT_FLOW_SETTINGS, type FlowSettings } from './marketFlowModel';
-import { inUniverse, loadUniverse, saveUniverse, type FlowUniverse } from './nifty50';
+import { inUniverse, loadUniverse, saveUniverse, segmentOfUniverse, type FlowUniverse } from './nifty50';
 import { useMarketFlow } from './useMarketFlow';
 
 /*
@@ -45,7 +45,8 @@ interface MarketFlowPageProps {
 
 const UNIVERSES: Array<{ value: FlowUniverse; label: string; title: string }> = [
   { value: 'nifty50', label: 'Nifty 50', title: 'The NIFTY 50 constituents' },
-  { value: 'fno', label: 'All F&O', title: 'Every F&O underlying: stocks and indices' },
+  { value: 'fno', label: 'All F&O', title: 'Every NSE and BSE F&O underlying: stocks and indices' },
+  { value: 'mcx', label: 'MCX', title: 'MCX commodities: crude, natural gas, gold, silver and base metals, on the commodity session (09:00 to 23:30)' },
 ];
 
 /** The wordmark: Order Flow in the website's heading face, the Mr. Chartist dot, and who made it. */
@@ -69,8 +70,8 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
   useFitScrollerHeight(pageRef, fits);
   useEffect(() => { saveUniverse(scope); }, [scope]);
 
-  const shown = useMemo(() => universe.filter(item => inUniverse(item.symbol, scope)), [universe, scope]);
-  const { flow, market, loading, error, provider, futuresRead, futuresTotal, rescan } = useMarketFlow(shown, SETTINGS);
+  const shown = useMemo(() => universe.filter(item => inUniverse(item, scope)), [universe, scope]);
+  const { flow, market, loading, error, provider, futuresRead, futuresTotal, rescan } = useMarketFlow(shown, SETTINGS, segmentOfUniverse(scope));
 
   const pageActions = (
     <>

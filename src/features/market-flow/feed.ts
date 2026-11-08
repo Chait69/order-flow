@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getLatestTradingSessionDate, isMarketSessionTime } from '@/lib/marketSession';
+import { profileFor, type Segment } from '@/lib/segmentSession';
 import type { Underlying } from '@/lib/underlyings';
 import { combineMonths, type FuturesMonth, type FuturesSeries } from '../options-scanner/futuresModel';
 import { parseMarketFile, type ContractMarket } from '../options-scanner/contractScanModel';
@@ -15,9 +15,11 @@ const API = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 export interface FeedStatus {
   provider: { id: string; label: string; alwaysLive: boolean };
   ready: boolean;
-  /** The session the server's provider is on: today's, or a recorded day being replayed. */
+  /** The session the server's provider is on: today's, or a recorded day being replayed. (The F&O segment's; `segments` has each one's.) */
   session?: string;
   lastError: { message: string } | null;
+  /** Each segment's own session and whether this server's provider supplies it. Absent from an older server: then only F&O is served. */
+  segments?: Partial<Record<Segment, { enabled: boolean; session?: string; underlyings?: number }>>;
 }
 
 let statusPromise: Promise<FeedStatus | null> | null = null;
@@ -33,18 +35,27 @@ export function useFeedStatus(): FeedStatus | null {
   return status;
 }
 
-/** True while the numbers can move: in market hours, or always for a provider that is always live (the demo). */
-const moving = (status: FeedStatus | null) => Boolean(status?.provider.alwaysLive) || isMarketSessionTime(Date.now());
+/** True while the numbers can move: in the segment's market hours, or always for a provider that is always live (the demo). */
+const moving = (status: FeedStatus | null, segment: Segment = 'fno') => Boolean(status?.provider.alwaysLive) || profileFor(segment).isSessionTime(Date.now());
+
+/** The session the server's provider is on for a segment: its own, else (an older server) F&O's, else the segment's latest by the real clock. */
+export function sessionOfStatus(status: FeedStatus | null, segment: Segment = 'fno'): string {
+  return status?.segments?.[segment]?.session ?? (segment === 'fno' ? status?.session : undefined) ?? profileFor(segment).latestSessionDate(new Date());
+}
 const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
 
-export async function fetchMarket(signal?: AbortSignal): Promise<ContractMarket | null> {
-  const res = await fetch(`${API}/api/market`, { cache: 'no-store', signal });
-  if (!res.ok) throw new Error(res.status === 503 ? ((await res.json().catch(() => null))?.error ?? 'The market is still loading.') : `Market ${res.status}`);
+/** The query that picks a segment's board: none for F&O, the original URL. */
+const segmentQuery = (segment: Segment) => (segment === 'mcx' ? '?segment=mcx' : '');
+
+export async function fetchMarket(signal?: AbortSignal, segment: Segment = 'fno'): Promise<ContractMarket | null> {
+  const res = await fetch(`${API}/api/market${segmentQuery(segment)}`, { cache: 'no-store', signal });
+  // 503: still building. 404 for a segment: this provider does not supply it, and the server says so in a line fit to show.
+  if (!res.ok) throw new Error(res.status === 503 || (res.status === 404 && segment !== 'fno') ? ((await res.json().catch(() => null))?.error ?? 'The market is still loading.') : `Market ${res.status}`);
   return parseMarketFile(await res.json());
 }
 
-export async function fetchMarketMinute(date: string, minute: string): Promise<ContractMarket | null> {
-  const res = await fetch(`${API}/api/market/${date}/${minute}`);
+export async function fetchMarketMinute(date: string, minute: string, segment: Segment = 'fno'): Promise<ContractMarket | null> {
+  const res = await fetch(`${API}/api/market/${date}/${minute}${segmentQuery(segment)}`);
   return res.ok ? parseMarketFile(await res.json()) : null;
 }
 
@@ -55,51 +66,61 @@ export async function fetchFutures(symbol: string, session: string): Promise<Fut
   return combineMonths(symbol, body.months ?? []);
 }
 
-/** The market file, read again every minute while the numbers can move. */
-export function useMarketFeed() {
+/**
+ * The market file of one segment, read again every minute while its numbers can move. Each segment has its own file, session and
+ * clock; switching segment drops what was held (a commodity board never inherits the F&O reading, nor the other way round).
+ */
+export function useMarketFeed(segment: Segment = 'fno') {
   const status = useFeedStatus();
-  const [market, setMarket] = useState<ContractMarket | null>(null);
+  const [held, setHeld] = useState<{ segment: Segment; market: ContractMarket | null }>({ segment, market: null });
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const statusRef = useRef(status);
   statusRef.current = status;
+  const market = held.segment === segment ? held.market : null;
+  // A server that has answered /api/status and does not list this segment as supplied (an older server, or a provider without it) is not asked.
+  // (An older server has no `segments`: it serves F&O only, so F&O is asked for and MCX is not.)
+  const unsupplied = status !== null && (status.segments ? status.segments[segment]?.enabled !== true : segment !== 'fno');
 
   useEffect(() => {
+    if (unsupplied) return undefined;
     const controller = new AbortController();
-    fetchMarket(controller.signal)
+    setError(null);
+    fetchMarket(controller.signal, segment)
       .then(next => {
         if (!next) return;
         setError(null);
         // A file from an earlier session is not today's board; a reading older than the one held is ignored.
-        if (next.date < (statusRef.current?.session ?? getLatestTradingSessionDate(new Date()))) return;
-        setMarket(current => (current && next.at <= current.at ? current : next));
+        if (next.date < sessionOfStatus(statusRef.current, segment)) return;
+        setHeld(current => (current.segment === segment && current.market && next.at <= current.market.at ? current : { segment, market: next }));
       })
       .catch(err => { if (!controller.signal.aborted) setError(String(err?.message ?? err)); });
     return () => controller.abort();
-  }, [tick]);
+  }, [tick, segment, unsupplied]);
 
   useEffect(() => {
     // Until the first file arrives, ask every five seconds; then once a minute while the numbers move.
     const timer = window.setInterval(() => {
       if (!visible()) return;
-      if (!market || moving(statusRef.current)) setTick(value => value + 1);
+      if (!market || moving(statusRef.current, segment)) setTick(value => value + 1);
     }, market ? 60_000 : 5_000);
     return () => window.clearInterval(timer);
-  }, [market]);
+  }, [market, segment]);
 
+  if (unsupplied) return { market: null, loading: false, error: `${status?.provider.label ?? 'This source'} does not supply ${profileFor(segment).label} data.`, status, rescan: () => setTick(value => value + 1) };
   return { market, loading: !market, error, status, rescan: () => setTick(value => value + 1) };
 }
 
 const WORKERS = 6;
 
 /** Each underlying's futures: read six at a time, and again every minute or two while the numbers move. */
-export function useFuturesFeed(symbols: readonly string[], enabled: boolean, status: FeedStatus | null) {
+export function useFuturesFeed(symbols: readonly string[], enabled: boolean, status: FeedStatus | null, segment: Segment = 'fno') {
   const [series, setSeries] = useState<ReadonlyMap<string, FuturesSeries | null>>(new Map());
   const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
   const [done, setDone] = useState(0);
   const [tick, setTick] = useState(0);
   // The provider's session: today's, or the recorded day it replays.
-  const session = status?.session ?? getLatestTradingSessionDate(new Date());
+  const session = sessionOfStatus(status, segment);
   const key = symbols.join(',');
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -107,9 +128,9 @@ export function useFuturesFeed(symbols: readonly string[], enabled: boolean, sta
   useEffect(() => {
     if (!enabled) return undefined;
     const every = statusRef.current?.provider.alwaysLive ? 60_000 : 120_000;
-    const timer = window.setInterval(() => { if (visible() && moving(statusRef.current)) setTick(value => value + 1); }, every);
+    const timer = window.setInterval(() => { if (visible() && moving(statusRef.current, segment)) setTick(value => value + 1); }, every);
     return () => window.clearInterval(timer);
-  }, [enabled, status]);
+  }, [enabled, status, segment]);
 
   useEffect(() => {
     if (!enabled || !symbols.length) return undefined;

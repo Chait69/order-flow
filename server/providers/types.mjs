@@ -58,6 +58,10 @@
  * @property {boolean} [alwaysLive]              True when the data moves outside market hours (the demo).
  * @property {() => Promise<void>} [init]        Called once at start (download instrument lists, check the token).
  * @property {() => number} [now]                The provider's clock; defaults to Date.now. The demo replays a session outside market hours.
+ *           It is called with the segment (`'fno'` or `'mcx'`), because each segment has its own session.
+ * @property {Array<'fno'|'mcx'>} [segments]     Which segments the provider supplies; default `['fno']` (NSE and BSE F&O).
+ *           `'mcx'` is the commodity board, a session of its own (09:00 to 23:30 IST, 23:55 with US daylight saving; see
+ *           src/lib/segmentSession.ts). The server serves a segment only when the provider lists it, and never fakes one.
  * @property {(u: Underlying) => Promise<string[]>} expiries         Live option expiries, ascending.
  * @property {(u: Underlying, expiry: string) => Promise<OptionChain>} optionChain
  * @property {(u: Underlying, session: string) => Promise<FuturesMonth[]>} futures

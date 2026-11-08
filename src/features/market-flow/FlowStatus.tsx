@@ -45,7 +45,7 @@ export function FlowStatus({ flow, at, loading, error, provider, futuresRead, fu
       </p>
     );
   }
-  const age = at != null ? describeDataAge(at, now) : null;
+  const age = at != null ? describeDataAge(at, now, flow.segment) : null;
   const updating = futuresRead < futuresTotal || flow.provisional;
   const total = flow.futures.total;
   const stamp = at != null ? `${dateFormat.format(at)}, ${clockOf(at)}` : null;

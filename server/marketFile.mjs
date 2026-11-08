@@ -55,7 +55,7 @@ export function encodeSeries(underlying, chain, readAt) {
   const atm = positiveOrNull(chain.atm) ?? (ladder.length ? ladder.reduce((best, k) => (Math.abs(k - spot) < Math.abs(best - spot) ? k : best)) : null);
   return {
     s: underlying.symbol,
-    k: underlying.kind === 'index' ? 'index' : 'stock',
+    k: underlying.kind === 'index' ? 'index' : underlying.kind === 'commodity' ? 'commodity' : 'stock',
     e: chain.expiry,
     lot: underlying.lot,
     ls: 'catalogue',

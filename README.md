@@ -160,7 +160,7 @@ Pick how far you want to go. Each step stands on its own.
 | **Tall tiles** | The strongest readings each side, with option open interest by strike around spot (puts left, calls right). |
 | **Big cards** | The same names in full: the move, the futures price, conviction (how many checks hold), support, resistance and the zone where open interest was added, with 5-minute candles. |
 | **Hover / click** | Hover any tile, card or line to light its path and open its detail; click to pin it. |
-| **Nifty 50 / All F&O** | The universe: the NIFTY 50 constituents (`src/features/market-flow/nifty50.ts`) or all ~217 F&O underlyings. Remembered per browser. |
+| **Nifty 50 / All F&O / MCX** | The universe: the NIFTY 50 constituents (`src/features/market-flow/nifty50.ts`), all ~217 NSE and BSE F&O underlyings, or the MCX commodities. MCX is a segment of its own, with its own session clock (see [MCX commodities](#mcx-commodities)). Remembered per browser. |
 | **Theme switch** | White (the default) or dark; your choice is remembered. |
 
 Build-up, from a future's price and open interest together:
@@ -216,6 +216,21 @@ The demo market reads its price levels from the newest session on disk, so after
 
 `data/recorded/` holds two real sessions, Thursday 29 and Friday 30 October 2026: every underlying's near and next-month futures, minute by minute with open interest, and its option chain. The `recorded` provider replays one in real time from 09:20 to 15:30 and round again (`MF_RECORDED_DATE` picks the day; the newest by default), so every move, build-up and candle on the board is that day's real one. The chains are a single snapshot taken after Friday's close, shared by both days; each chain's spot follows the day's futures. Where the data came from and its terms: [data/recorded/README.md](data/recorded/README.md). Record your own days with `npm run record`.
 
+### MCX commodities
+
+The **MCX** button opens a commodity board: crude oil, natural gas, gold, silver, copper and zinc (and their mini contracts), read from each one's future exactly as the stocks are. It is a **segment** of its own, not a filter on the F&O board:
+
+| | NSE / BSE F&O (`fno`) | MCX (`mcx`) |
+|---|---|---|
+| Session | 09:15 to 15:40 (readings and chart end 15:30) | 09:00 to 23:30; 23:55 while US daylight saving is in force |
+| Calendar | NSE holidays | weekdays, minus MCX's full-day closures (`MCX_FULL_HOLIDAYS`, provisional) |
+| An expiry is live until | 15:40 on its date | MCX's close on its date |
+| Rows | `public/underlyings.json`, `exch` NSE or BSE | the same file, `exch` `MCX`, `kind` `commodity`, sector energy / bullion / base metals |
+
+Each segment has its own market file, session date, live-hours test and stored minutes on the server: at 20:00 the F&O board is closed and the commodity board is live. `/api/market?segment=mcx` serves it (no query is F&O, as before); `/api/status` lists each segment's session under `segments`. The session rules live in [`src/lib/segmentSession.ts`](src/lib/segmentSession.ts).
+
+A provider says which segments it supplies (`segments`, default `['fno']`). A segment it does not supply is never faked: the MCX button says so. Today only the **demo market** supplies MCX (simulated, on its own clock: `npm run dev`); the archive and recorded sessions are NSE/BSE only, and an `http` source supplies it when it answers for the commodity symbols and you set `MF_HTTP_SEGMENTS=fno,mcx`. Open interest from a commodity source is in lots on the exchange: convert it to units (lots times the contract's lot size), as for every provider.
+
 ### Connecting a broker
 
 ```bash
@@ -258,6 +273,7 @@ Copy `.env.example` to `.env`.
 |---|---|---|
 | `MF_PROVIDER` | `demo` | Server: which provider feeds the board (`demo`, `archive`, `recorded`, `http`, `upstox`, …) |
 | `MF_RECORDED_DATE` | newest | Server: the recorded day to replay |
+| `MF_HTTP_SEGMENTS` | `fno` | Server, `http` provider: the segments the API supplies (`fno`, `mcx`); add `mcx` once it answers for commodity symbols |
 | `MF_ARCHIVE_DATE` | newest | Server: the archive day to replay (`npm run fetch:nse` builds them) |
 | `MF_HTTP_BASE_URL` | | `http` provider: your API (see [Connect any API](#connect-any-api) for the other `MF_HTTP_*` settings) |
 | `PORT` | `8787` | Server port (the dev page proxies `/api` to it) |

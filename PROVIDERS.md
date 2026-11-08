@@ -80,6 +80,15 @@ Paste this into Claude Code, Cursor, Copilot or any coding assistant, in this re
 
 > Connect Order Flow to **<my broker>** (API docs: <link>). Read `PROVIDERS.md`, `server/providers/types.mjs`, `server/providers/template.mjs` and `server/providers/upstox.mjs`. Create `server/providers/<broker>.mjs` implementing `init`, `expiries`, `optionChain` and `futures` exactly as the contract describes (rupees, units, epoch ms, ascending candles with start times). Map every symbol in `public/underlyings.json` to the broker's instruments, with explicit index-name mapping. Read credentials from environment variables, add them to `.env.example`, register the provider in `server/providers/index.mjs`, throttle to the broker's rate limit, then run `MF_PROVIDER=<broker> npm run check:provider` and fix everything it reports. Do not change the page.
 
+## Segments: NSE/BSE F&O and MCX
+
+A provider serves one or more **segments**, each on its own session clock (see [`src/lib/segmentSession.ts`](src/lib/segmentSession.ts)). `fno` is NSE and BSE F&O, the default. `mcx` is the commodity board: 09:00 to 23:30 IST (23:55 while US daylight saving is in force), its own holidays, and rows in `public/underlyings.json` with `exch: 'MCX'` and `kind: 'commodity'`.
+
+- List what you supply in `segments` (`['fno']` by default). The server builds a market file per listed segment and never fakes one you did not list; the page then tells the visitor that the source does not supply it.
+- `now()` is called with the segment (`'fno'` or `'mcx'`), because each segment has its own session. A provider with one clock can ignore the argument.
+- For a commodity, `futures()` candles start at the MCX open (09:00), and `expiries()` are the contracts' own monthly dates. Open interest is in lots on the exchange: convert to units (lots times the lot size) like every other provider.
+- The built-in `http` provider supplies `fno` only, unless `MF_HTTP_SEGMENTS=fno,mcx` says its API also answers for the commodity symbols.
+
 ## How the server uses a provider
 
 - At start: `init()`, then a first build of the market file.
