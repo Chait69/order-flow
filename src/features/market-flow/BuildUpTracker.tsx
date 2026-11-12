@@ -94,6 +94,17 @@ function useTracker(): { data: TrackerData | null; error: string | null } {
   return { data, error };
 }
 
+/** Where each label sits: under its own tick, nudged apart so two never overlap (ticks can be close when the price has run far). */
+function labelSpots(xs: number[], gap = 17, lo = 8, hi = 92): number[] {
+  const order = xs.map((x, i) => i).sort((a, b) => xs[a] - xs[b]);
+  const out = [...xs];
+  let prev = lo - gap;
+  for (const i of order) { out[i] = Math.max(Math.min(xs[i], hi), prev + gap, lo); prev = out[i]; }
+  let next = hi + gap;
+  for (const i of [...order].reverse()) { out[i] = Math.min(out[i], next - gap, hi); next = out[i]; }
+  return out;
+}
+
 /** The plan as a picture: red from entry back to the stop, green from entry out to the last target, ticks at T1 to T3, a dot where the price is now. */
 function PriceLadder({ side, entry, lv, cmp, exit, reached = 0 }: { side: 'long' | 'short'; entry: number; lv: Levels; cmp?: number | null; exit?: number | null; reached?: number }) {
   const marks = [lv.stop, lv.t1, lv.t2, lv.t3, entry, ...(cmp != null ? [cmp] : []), ...(exit != null ? [exit] : [])];
@@ -114,10 +125,17 @@ function PriceLadder({ side, entry, lv, cmp, exit, reached = 0 }: { side: 'long'
         {cmp != null ? <i className="mf-tlad__cmp" style={{ left: `${x(cmp)}%` }} title={`Now ${price(cmp)}`} /> : null}
       </div>
       <p className="mf-tlad__legend">
-        {/* left to right in the order of the ladder above: for a short the stop is at the right end, the targets run down to the left */}
-        {[{ n: 'Stop', v: lv.stop, c: 'is-down', i: -1 }, { n: 'T1', v: lv.t1, c: 'is-up', i: 0 }, { n: 'T2', v: lv.t2, c: 'is-up', i: 1 }, { n: 'T3', v: lv.t3, c: 'is-up', i: 2 }]
-          .sort((p, q) => p.v - q.v)
-          .map(m => <span key={m.n} className={`${m.c}${m.i >= 0 && m.i < reached ? ' is-hit' : ''}`}>{m.n} {price(m.v)}{m.i >= 0 && m.i < reached ? ' ✓' : ''}</span>)}
+        {/* each label sits under its own tick (entry included), so a label can be read against the line above it */}
+        {(() => {
+          const items = [{ n: 'Stop', v: lv.stop, c: 'is-down', i: -1 }, { n: 'T1', v: lv.t1, c: 'is-up', i: 0 }, { n: 'T2', v: lv.t2, c: 'is-up', i: 1 }, { n: 'T3', v: lv.t3, c: 'is-up', i: 2 },
+            { n: 'Entry', v: entry, c: 'is-entry', i: -1 }];
+          const spots = labelSpots(items.map(m => x(m.v)));
+          return items.map((m, k) => (
+            <span key={m.n} className={`${m.c}${m.i >= 0 && m.i < reached ? ' is-hit' : ''}`} style={{ left: `${spots[k]}%` }}>
+              <b>{m.n}{m.i >= 0 && m.i < reached ? ' ✓' : ''}</b><i>{price(m.v)}</i>
+            </span>
+          ));
+        })()}
       </p>
     </div>
   );
