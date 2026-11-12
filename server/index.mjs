@@ -173,9 +173,10 @@ function pruneOldDays(c, today) {
   }
 }
 
-/** Live (in this segment's session, or a provider that is always live): every minute, a few seconds past the boundary. Otherwise hourly. */
+/** Live (in this segment's session, or a provider that is always live): every minute, a few seconds past the boundary. Otherwise every 5 minutes:
+ *  an hourly wait could straddle the open (or follow a build that failed while the feed was still warming up) and leave the board empty for up to an hour. */
 function schedule(c) {
-  const wait = c.isLive() ? 60_000 - (Date.now() % 60_000) + 3_000 : 60 * 60_000;
+  const wait = c.isLive() ? 60_000 - (Date.now() % 60_000) + 3_000 : 5 * 60_000;
   setTimeout(async () => { await build(c); schedule(c); }, wait);
 }
 
