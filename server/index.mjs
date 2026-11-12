@@ -194,6 +194,8 @@ async function futuresFor(c, symbol, session) {
   if (futuresCache.size > 4000) futuresCache.delete(futuresCache.keys().next().value);
   return value;
 }
+  // After the close an answer is kept for the rest of the session, so one without its previous close (the service had not ticked yet) must not be.
+  value.then(v => { if (!v.months?.some(m => m.prevClose != null)) futuresCache.delete(key); }, () => {});
 
 // ── HTTP ──────────────────────────────────────────────────────────────────
 
@@ -324,6 +326,19 @@ async function handle(req, res) {
 
   // The built page; any other path is the page itself (its router is in memory).
   if (fs.existsSync(DIST)) {
+  // The tracker is the feed service's own (scored and judged with the India F&O app's functions): pass its answer through unchanged.
+  if (p === '/api/tracker') {
+    const base = (process.env.MF_HTTP_BASE_URL || '').replace(/\/+$/, '');
+    if (!base) return send(res, 404, { error: 'The tracker needs the live feed service (MF_HTTP_BASE_URL).' });
+    try {
+      const upstream = await fetch(`${base}/tracker`, { signal: AbortSignal.timeout(8000) });
+      return send(res, upstream.status, await upstream.json());
+    } catch (error) {
+      log('tracker failed:', error?.message || error);
+      return send(res, 502, { error: 'The tracker did not answer.' });
+    }
+  }
+
     const file = inside(DIST, p === '/' ? 'index.html' : p.slice(1));
     if (file && fs.existsSync(file) && fs.statSync(file).isFile()) return serveFile(res, file, p.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
     return serveFile(res, path.join(DIST, 'index.html'));

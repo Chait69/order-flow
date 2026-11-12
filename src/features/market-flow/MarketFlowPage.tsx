@@ -6,6 +6,7 @@ import { CapsuleSegmented } from '@/components/common/CapsuleSegmented';
 import { useFitScrollerHeight } from '@/hooks/useFitScrollerHeight';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type { Underlying } from '@/lib/underlyings';
+import { BuildUpTracker } from './BuildUpTracker';
 import { FlowBoard, type FlowLayout } from './FlowBoard';
 import { FlowStatus } from './FlowStatus';
 import { DEFAULT_FLOW_SETTINGS, type FlowSettings } from './marketFlowModel';
@@ -43,6 +44,11 @@ interface MarketFlowPageProps {
   universe: Underlying[];
 }
 
+const VIEWS: Array<{ value: 'board' | 'tracker'; label: string; title: string }> = [
+  { value: 'board', label: 'Board', title: 'The full flow board' },
+  { value: 'tracker', label: 'Tracker', title: 'Top 5 long and short build-ups, stocks and commodities, with entry, stop and target' },
+];
+
 const UNIVERSES: Array<{ value: FlowUniverse; label: string; title: string }> = [
   { value: 'nifty50', label: 'Nifty 50', title: 'The NIFTY 50 constituents' },
   { value: 'fno', label: 'All F&O', title: 'Every NSE and BSE F&O underlying: stocks and indices' },
@@ -60,6 +66,7 @@ const BRAND = (
 
 export function MarketFlowPage({ universe }: MarketFlowPageProps) {
   const [scope, setScope] = useState<FlowUniverse>(loadUniverse);
+  const [view, setView] = useState<'board' | 'tracker'>('board');
   const pageRef = useRef<HTMLDivElement>(null);
   const wider = useMediaQuery('(min-width: 1280px)');
   const wide = useMediaQuery('(min-width: 1100px)');
@@ -71,10 +78,12 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
   useEffect(() => { saveUniverse(scope); }, [scope]);
 
   const shown = useMemo(() => universe.filter(item => inUniverse(item, scope)), [universe, scope]);
+  const trackerOn = view === 'tracker';
   const { flow, market, loading, error, provider, futuresRead, futuresTotal, rescan } = useMarketFlow(shown, SETTINGS, segmentOfUniverse(scope));
 
   const pageActions = (
     <>
+      <CapsuleSegmented options={VIEWS} value={view} onChange={setView} ariaLabel="View" groupId="flow-view" size="page" className="ui-flow-universe" />
       <CapsuleSegmented options={UNIVERSES} value={scope} onChange={setScope} ariaLabel="Underlyings" groupId="flow-universe" size="page" className="ui-flow-universe" />
       <ThemeToggle onChange={theme => applyTheme(theme)} size="md" className="ui-flow-theme" />
     </>
@@ -84,8 +93,8 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
     <div className="ui-flow oi-design" data-window="day" data-universe={scope} data-layout={layout} data-fit={fits ? 'true' : undefined} ref={pageRef}>
       <h1 className="is-visually-hidden">Order Flow</h1>
       <PageBar current="Order Flow" crumbs={false} className="oi-design ui-flow-pagebar" brand={BRAND}>{pageActions}</PageBar>
-      <FlowBoard key={scope} flow={flow} settings={CHART} layout={layout}
-        status={<FlowStatus flow={flow} at={market?.at ?? null} loading={loading} error={error} provider={provider} futuresRead={futuresRead} futuresTotal={futuresTotal} onRescan={rescan} />} />
+      {trackerOn ? <BuildUpTracker /> : <FlowBoard key={scope} flow={flow} settings={CHART} layout={layout}
+        status={<FlowStatus flow={flow} at={market?.at ?? null} loading={loading} error={error} provider={provider} futuresRead={futuresRead} futuresTotal={futuresTotal} onRescan={rescan} />} />}
     </div>
   );
 }
