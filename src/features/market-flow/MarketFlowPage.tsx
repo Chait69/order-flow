@@ -8,6 +8,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type { Underlying } from '@/lib/underlyings';
 import { BuildUpTracker } from './BuildUpTracker';
 import { FlowBoard, type FlowLayout } from './FlowBoard';
+import { feedProblem, observedAtOf } from './feed';
 import { FlowStatus } from './FlowStatus';
 import { DEFAULT_FLOW_SETTINGS, type FlowSettings } from './marketFlowModel';
 import { inUniverse, loadUniverse, saveUniverse, segmentOfUniverse, type FlowUniverse } from './nifty50';
@@ -52,7 +53,7 @@ const VIEWS: Array<{ value: 'board' | 'tracker'; label: string; title: string }>
 const UNIVERSES: Array<{ value: FlowUniverse; label: string; title: string }> = [
   { value: 'nifty50', label: 'Nifty 50', title: 'The NIFTY 50 constituents' },
   { value: 'fno', label: 'All F&O', title: 'Every NSE and BSE F&O underlying: stocks and indices' },
-  { value: 'mcx', label: 'MCX', title: 'MCX commodities: crude, natural gas, gold, silver and base metals, on the commodity session (09:00 to 23:30)' },
+  { value: 'mcx', label: 'MCX', title: 'MCX commodities: crude, natural gas, gold, silver and base metals, on the commodity session (09:00 to 23:55)' },
 ];
 
 /** The wordmark: Order Flow in the website's heading face, the Mr. Chartist dot, and who made it. */
@@ -79,7 +80,8 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
 
   const shown = useMemo(() => universe.filter(item => inUniverse(item, scope)), [universe, scope]);
   const trackerOn = view === 'tracker';
-  const { flow, market, loading, error, provider, futuresRead, futuresTotal, rescan } = useMarketFlow(shown, SETTINGS, segmentOfUniverse(scope));
+  const segment = segmentOfUniverse(scope);
+  const { flow, market, loading, error, provider, status, futuresRead, futuresTotal, rescan } = useMarketFlow(shown, SETTINGS, segment);
 
   const pageActions = (
     <>
@@ -94,7 +96,8 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
       <h1 className="is-visually-hidden">Order Flow</h1>
       <PageBar current="Order Flow" crumbs={false} className="oi-design ui-flow-pagebar" brand={BRAND}>{pageActions}</PageBar>
       {trackerOn ? <BuildUpTracker /> : <FlowBoard key={scope} flow={flow} settings={CHART} layout={layout}
-        status={<FlowStatus flow={flow} at={market?.at ?? null} loading={loading} error={error} provider={provider} futuresRead={futuresRead} futuresTotal={futuresTotal} onRescan={rescan} />} />}
+        status={<FlowStatus flow={flow} at={market?.at ?? null} observedAt={observedAtOf(market)} problem={feedProblem(status, segment)}
+          coverage={flow ? { have: flow.futures.total, of: shown.length } : null} loading={loading} error={error} provider={provider} futuresRead={futuresRead} futuresTotal={futuresTotal} onRescan={rescan} />} />}
     </div>
   );
 }

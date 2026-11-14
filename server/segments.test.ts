@@ -32,7 +32,7 @@ describe('the demo clocks', () => {
     const sunday = ist('2026-11-08', '12:00');
     const replay = demoNow(sunday, 'mcx');
     expect(replay).toBeGreaterThanOrEqual(ist('2026-11-06', '09:00'));
-    expect(replay).toBeLessThanOrEqual(ist('2026-11-06', '23:30'));
+    expect(replay).toBeLessThanOrEqual(ist('2026-11-06', '23:55'));
   });
 
   it('supplies both segments', () => {
@@ -64,7 +64,7 @@ describe('the demo commodities', () => {
     const months = await demo.futures(crude as never, '2026-11-06');
     const { candles, prevOi } = months[0];
     expect(candles.length).toBeGreaterThan(0);
-    expect(candles.length).toBeLessThanOrEqual(870);
+    expect(candles.length).toBeLessThanOrEqual(895);
     expect(candles[0].at).toBe(ist('2026-11-06', '09:00'));
     candles.forEach((c, i) => { if (i) expect(c.at - candles[i - 1].at).toBe(MINUTE); });
     expect(prevOi % crude.lot).toBe(0);

@@ -19,19 +19,43 @@ export interface FeedStatus {
   session?: string;
   lastError: { message: string } | null;
   /** Each segment's own session and whether this server's provider supplies it. Absent from an older server: then only F&O is served. */
-  segments?: Partial<Record<Segment, { enabled: boolean; session?: string; underlyings?: number }>>;
+  segments?: Partial<Record<Segment, {
+    enabled: boolean; session?: string; underlyings?: number;
+    /** The segment's last good build, and the last time a build failed (cleared by the next good one). */
+    market?: { at: number; date: string; series: number } | null; lastError?: { at: number; message: string } | null;
+  }>>;
+  /** Set here, not by the server: the last status check failed, so this is what was held before it. */
+  unreachable?: boolean;
 }
 
-let statusPromise: Promise<FeedStatus | null> | null = null;
-/** Which provider is behind the server; read once per visit. */
+const STATUS_EVERY_MS = 60_000;
+let statusInFlight: Promise<FeedStatus | null> | null = null;
+/**
+ * The server's status, asked afresh every time (one request at a time). It was read once per visit and kept: a tab left open across a session change
+ * went on asking for yesterday's futures, and never learned the feed had failed or come back.
+ */
 export function feedStatus(): Promise<FeedStatus | null> {
-  statusPromise ??= fetch(`${API}/api/status`, { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
-  return statusPromise;
+  statusInFlight ??= fetch(`${API}/api/status`, { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null).finally(() => { statusInFlight = null; });
+  return statusInFlight;
 }
 
+/** The status, read again every minute and when the tab comes back. A failed read keeps the last good one, marked `unreachable`. */
 export function useFeedStatus(): FeedStatus | null {
   const [status, setStatus] = useState<FeedStatus | null>(null);
-  useEffect(() => { let live = true; void feedStatus().then(s => { if (live) setStatus(s); }); return () => { live = false; }; }, []);
+  useEffect(() => {
+    let live = true;
+    const read = () => {
+      void feedStatus().then(next => {
+        if (!live) return;
+        setStatus(current => (next ? next : current ? (current.unreachable ? current : { ...current, unreachable: true }) : null));
+      });
+    };
+    read();
+    const timer = window.setInterval(() => { if (visible()) read(); }, STATUS_EVERY_MS);
+    const onVisible = () => { if (visible()) read(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { live = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
   return status;
 }
 
@@ -43,6 +67,23 @@ export function sessionOfStatus(status: FeedStatus | null, segment: Segment = 'f
   return status?.segments?.[segment]?.session ?? (segment === 'fno' ? status?.session : undefined) ?? profileFor(segment).latestSessionDate(new Date());
 }
 const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
+
+/**
+ * When the prices were OBSERVED: the newest chain time the vendor stamped on any series. Not `market.at`, which is when this server built the file:
+ * a build at noon of data last traded at midnight must not read as noon.
+ */
+export function observedAtOf(market: ContractMarket | null): number | null {
+  let latest: number | null = null;
+  for (const series of market?.series ?? []) if (series.tape != null && (latest === null || series.tape > latest)) latest = series.tape;
+  return latest;
+}
+
+/** What is wrong with the live data, in a line fit to show, or null. Shown even while older data is on screen. */
+export function feedProblem(status: FeedStatus | null, segment: Segment = 'fno'): string | null {
+  if (!status) return null;
+  if (status.unreachable) return 'The Order Flow server did not answer its last status check';
+  return status.segments?.[segment]?.lastError?.message ?? (segment === 'fno' ? status.lastError?.message : null) ?? null;
+}
 
 /** The query that picks a segment's board: none for F&O, the original URL. */
 const segmentQuery = (segment: Segment) => (segment === 'mcx' ? '?segment=mcx' : '');
@@ -124,6 +165,17 @@ export function useFuturesFeed(symbols: readonly string[], enabled: boolean, sta
   const key = symbols.join(',');
   const statusRef = useRef(status);
   statusRef.current = status;
+
+  // A new session (the status is now read again every minute): what was read for the last one is dropped, not shown as today's.
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    if (sessionRef.current === session) return;
+    sessionRef.current = session;
+    setSeries(new Map());
+    setFailed(new Set());
+    setDone(0);
+    setTick(0);
+  }, [session]);
 
   useEffect(() => {
     if (!enabled) return undefined;

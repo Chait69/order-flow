@@ -16,7 +16,7 @@ interface Pick {
   symbol: string; kind: string; score: number; recommended: boolean; buildup: string; chgPct: number; oiChgPct: number; ltp: number; cmp: number | null;
   atr: number | null; levels: Ladder | null; reasons: string[]; tracked: boolean;
 }
-type OutcomeName = 'pending' | 'target_hit' | 'stop_hit' | 'squared_off';
+type OutcomeName = 'pending' | 'target_hit' | 'stop_hit' | 'squared_off' | 'no_data';
 interface Outcome { outcome: OutcomeName; time: number | null; exit_price: number | null; level: number; stop_after: number | null; following?: boolean; pct?: number; r?: number | null; pts?: number }
 interface Trade {
   id: number; day: string; symbol: string; kind: string; side: 'long' | 'short'; score: number; entryAt: number; entry: number; cmp: number | null; atr: number;
@@ -32,6 +32,8 @@ interface TrackerData {
   asof: number | null; pricedAt?: number; cadence?: { rankEveryMin: number; confirmReads: number; cooldownMin: number };
   lists: Record<string, Pick[]>; trades: Trade[]; minScore: number; recommendedScore: number;
   rules: Record<string, { entries: string; squareOff: string }>; note: string; error?: string;
+  /** Set by the server when the live feed service did not answer: this is the last good answer, as it was at `cachedAt`. */
+  stale?: { cachedAt: number; reason: string };
 }
 type Seg = 'fno' | 'mcx';
 type Tab = 'live' | 'trades' | 'focus';
@@ -46,13 +48,15 @@ const t = (ms: number | null | undefined) => (ms ? timeFmt.format(ms) : '—');
 const tone = (v: number | null) => (v == null || v === 0 ? '' : v > 0 ? 'is-up' : 'is-down');
 /** Points gained (+) or lost (−) from entry to a price, in the trade's own direction. */
 const points = (side: 'long' | 'short', entry: number, at: number | null | undefined) => (at == null ? null : (at - entry) * (side === 'long' ? 1 : -1));
-const STATUS: Record<OutcomeName, string> = { pending: 'Open', target_hit: 'Target hit', stop_hit: 'Stop hit', squared_off: 'Squared off' };
-const CHIP: Record<OutcomeName, string> = { pending: 'is-open', target_hit: 'is-target', stop_hit: 'is-stop', squared_off: 'is-flat' };
+const STATUS: Record<OutcomeName, string> = { pending: 'Open', target_hit: 'Target hit', stop_hit: 'Stop hit', squared_off: 'Squared off', no_data: 'No price data' };
+const CHIP: Record<OutcomeName, string> = { pending: 'is-open', target_hit: 'is-target', stop_hit: 'is-stop', squared_off: 'is-flat', no_data: 'is-flat' };
 type Verdict = 'open' | 'win' | 'loss' | 'flat';
 /** Did a trade make money? By its R (else the exit's % or points): a target hit is a win, a stop hit a loss, and a trade squared off at the close is a
  *  win or a loss by where it was closed. Open trades are neither. */
+/** A trade with a result: decided, or squared off. A trade with no price data has no result (and none is made up), so it is not one of these. */
+const settled = (o: Outcome | undefined) => !!o && o.outcome !== 'pending' && o.outcome !== 'no_data';
 const verdictOf = (o: Outcome | undefined): Verdict => {
-  if (!o || o.outcome === 'pending') return 'open';
+  if (!o || o.outcome === 'pending' || o.outcome === 'no_data') return 'open';
   const v = o.r ?? o.pct ?? o.pts ?? null;
   return v == null || v === 0 ? 'flat' : v > 0 ? 'win' : 'loss';
 };
@@ -191,7 +195,8 @@ const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.l
 
 function Scorecard({ trades }: { trades: Trade[] }) {
   const s = useMemo(() => {
-    const done = trades.filter(x => x.result.tight && x.result.tight.outcome !== 'pending');
+    const done = trades.filter(x => settled(x.result.tight));
+    const noData = trades.filter(x => x.result.tight?.outcome === 'no_data').length;
     const count = (o: OutcomeName) => done.filter(x => x.result.tight.outcome === o).length;
     const sqBy = (v: Verdict) => done.filter(x => x.result.tight.outcome === 'squared_off' && verdictOf(x.result.tight) === v).length;
     const wins = done.filter(x => verdictOf(x.result.tight) === 'win').length;
@@ -199,14 +204,14 @@ function Scorecard({ trades }: { trades: Trade[] }) {
     const rs = (key: string) => done.map(x => x.result[key]?.r).filter((v): v is number => typeof v === 'number');
     const total = rs('tight').reduce((a, b) => a + b, 0);
     return {
-      open: trades.length - done.length, target: count('target_hit'), stop: count('stop_hit'), all: trades.length,
+      open: trades.filter(x => (x.result.tight?.outcome ?? 'pending') === 'pending').length, noData, target: count('target_hit'), stop: count('stop_hit'), all: trades.length,
       sqWin: sqBy('win'), sqLoss: sqBy('loss'), sqFlat: sqBy('flat'), wins, losses, closed: done.length,
       winRate: done.length ? (wins / done.length) * 100 : null, avg: mean(rs('tight')), opp: mean(rs('opp_tight')), total: done.length ? total : null,
     };
   }, [trades]);
   const fmt = (v: number | null, d = 2) => (v == null ? '—' : `${sgn(v)}${Math.abs(v).toFixed(d)}`);
   const tiles: Array<{ label: string; value: string; tone?: string; hint: string; sub?: string }> = [
-    { label: 'Tracked', value: String(s.all), hint: 'Trades logged' },
+    { label: 'Tracked', value: String(s.all), hint: 'Trades logged', sub: s.noData ? `${s.noData} with no price data, not counted` : undefined },
     { label: 'Open', value: String(s.open), hint: 'Still running' },
     { label: 'Target hit', value: String(s.target), tone: 'is-up', hint: 'Target 1 reached before the stop' },
     { label: 'Stop hit', value: String(s.stop), tone: 'is-down', hint: 'Stop reached first' },
@@ -214,7 +219,7 @@ function Scorecard({ trades }: { trades: Trade[] }) {
     { label: 'Squared off in loss', value: String(s.sqLoss), tone: 'is-down', hint: `Neither level was reached; closed at the square-off time on the wrong side of the entry${s.sqFlat ? ` (${s.sqFlat} more closed flat)` : ''}` },
     { label: 'Win rate', value: s.winRate == null ? '—' : `${s.winRate.toFixed(0)}%`, sub: s.closed ? `${s.wins} won · ${s.losses} lost · ${s.closed} closed` : undefined,
       hint: 'Closed trades that made money (a target hit, or squared off in profit) out of ALL closed trades. A trade squared off at a loss counts against it.' },
-    { label: 'Total R', value: fmt(s.total), tone: tone(s.total), hint: 'Sum of R on closed trades (points are not added: each name has its own price scale)' },
+    { label: 'Total R', value: fmt(s.total), tone: tone(s.total), hint: 'Sum of R on closed trades. HYPOTHETICAL: no costs, no slippage. (Points are not added: each name has its own price scale)' },
     { label: 'Average R', value: fmt(s.avg), tone: tone(s.avg), hint: 'R per closed trade' },
     { label: 'Opposite R', value: fmt(s.opp), tone: tone(s.opp), hint: 'The same entries traded the other way: the picks should beat this' },
   ];
@@ -230,7 +235,7 @@ function Scorecard({ trades }: { trades: Trade[] }) {
 function TradeRow({ x, open, onToggle }: { x: Trade; open: boolean; onToggle: () => void }) {
   const r = x.result.tight;
   const out: OutcomeName = r?.outcome ?? 'pending';
-  const done = out !== 'pending';
+  const done = out !== 'pending' && out !== 'no_data';           // no_data: no exit was seen, so there is no exit price, P&L or R to show
   const lv = x.levels.main.tight;
   const pl = done ? (r.pts ?? points(x.side, x.entry, r.exit_price)) : points(x.side, x.entry, x.cmp);
   const wide = x.result.us;
@@ -315,7 +320,7 @@ function MyTrades({ trades }: { trades: Trade[] }) {
       </div>
       {days.length === 0 ? <p className="mf-tempty">No trades match. A pick is logged the first time it enters the top 5 with a high enough score, inside the entry window.</p> : null}
       {days.map(([day, list]) => {
-        const closed = list.filter(x => x.result.tight && x.result.tight.outcome !== 'pending');
+        const closed = list.filter(x => settled(x.result.tight));
         const sum = closed.reduce((a, x) => a + (x.result.tight.r ?? 0), 0);
         const won = closed.filter(x => verdictOf(x.result.tight) === 'win').length;
         const lost = closed.filter(x => verdictOf(x.result.tight) === 'loss').length;
@@ -413,7 +418,17 @@ export function BuildUpTracker() {
   const setSeg = (v: Seg) => { setSegState(v); remember('orderFlow:tracker:seg', v); };
   const setTab = (v: Tab) => { setTabState(v); remember('orderFlow:tracker:tab', v); };
 
-  if (!data) return <div className="mf-trk"><p className="mf-tempty">{error ? `The tracker is not available: ${error}` : 'Loading the tracker…'}</p></div>;
+  if (!data) {
+    return (
+      <div className="mf-trk">
+        <p className="mf-tempty">
+          {error
+            ? `The tracker is not available (${error}). It runs inside the live feed service, which starts on weekday mornings once the Breeze login is fresh; nothing is shown from before it stopped.`
+            : 'Loading the tracker…'}
+        </p>
+      </div>
+    );
+  }
 
   const trades = data.trades.filter(x => segOfKind(x.kind) === seg);
   const rule = data.rules[seg];
@@ -429,6 +444,12 @@ export function BuildUpTracker() {
 
   return (
     <div className="mf-trk">
+      {data.stale ? (
+        <p className="mf-tstale" role="alert">
+          Cached tracker from {dateFmt.format(data.stale.cachedAt)}, {t(data.stale.cachedAt)}. {data.stale.reason} The picks, CMP and open trades below are as they were then, not live;
+          recorded trades and results are unchanged.
+        </p>
+      ) : null}
       <header className="mf-trk__head">
         <div className="mf-tpills is-big" role="group" aria-label="Segment">
           <button type="button" className={seg === 'fno' ? 'is-on' : ''} aria-pressed={seg === 'fno'} onClick={() => setSeg('fno')}>Stocks (F&amp;O)</button>
@@ -458,7 +479,9 @@ export function BuildUpTracker() {
         <p>
           Scored like the India F&amp;O app (:6699): build-up, size of the price and OI move, PCR and room to the option OI wall. A score of {data.recommendedScore} or more is a recommendation;
           from {data.minScore} a pick is logged. Stop and targets are its tight ATR ladder: stop 0.75 ATR away, targets 0.5, 1.0 and 1.5 ATR. Trades are judged on 1-minute closes and are intraday
-          only: the first of target 1 or the stop to be reached decides it, and what is still open at the close is squared off there. R is profit or loss divided by the distance to the stop.
+          only: the first of target 1 or the stop to be reached decides it (a target fills at its level, a stop at the close that went through it), and what is still open at the close is squared off there;
+          with no price near the close there is no outcome. Only finished minutes count, and a recorded outcome is never rewritten. R is profit or loss divided by the distance to the stop.
+          These are HYPOTHETICAL research outcomes: no brokerage, taxes or slippage, and no check that you could have traded the size.
           Bullish means long build-up or short covering; bearish means short build-up or long unwinding. These are suggestions, not advice.
         </p>
       </details>

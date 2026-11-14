@@ -60,6 +60,7 @@ export function useMarketFlow(universe: readonly Underlying[], settings: FlowSet
     loading: data.loading,
     error: data.error,
     provider: data.status?.provider ?? null,
+    status: data.status,
     futuresRead: futures.read,
     futuresTotal: futures.total,
     session: futures.session,

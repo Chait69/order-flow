@@ -6,8 +6,14 @@ const dateFormat = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', 
 
 interface FlowStatusProps {
   flow: MarketFlow | null;
-  /** The market file's own time; null until something has been read. */
+  /** When this server built the market file (retrieval time); null until something has been read. */
   at: number | null;
+  /** When the prices were observed: the vendor's own time on them. Shown apart from `at`. */
+  observedAt?: number | null;
+  /** Underlyings priced out of those in scope. */
+  coverage?: { have: number; of: number } | null;
+  /** What is wrong with the live data (from the server), shown even while older data is on screen. */
+  problem?: string | null;
   loading: boolean;
   /** What the server said when the market could not be read. */
   error?: string | null;
@@ -27,7 +33,14 @@ interface FlowStatusProps {
  * updating, since a spot change stands in for each future not yet read. A
  * file from an earlier session says so.
  */
-export function FlowStatus({ flow, at, loading, error, provider, futuresRead, futuresTotal, onRescan, now }: FlowStatusProps) {
+export function FlowStatus({ flow, at, observedAt, coverage, problem, loading, error, provider, futuresRead, futuresTotal, onRescan, now }: FlowStatusProps) {
+  // Short on the page (the status column is narrow); the server's own words are the tooltip and the accessible label.
+  const detail = problem ? problem.replace(/[.\s]+$/, '') : '';
+  const alert = problem
+    ? <span className="mf-status__warn" role="alert" title={detail} aria-label={`Live feed problem: ${detail}${flow ? '. Showing the last data that arrived' : ''}`}>
+      Live feed problem{flow ? ' · showing the last data' : ''}
+    </span>
+    : null;
   const source = provider ? (
     <span className={`mf-status__source${provider.alwaysLive ? ' is-demo' : ''}`}>
       <i aria-hidden="true" />{provider.id === 'recorded' || provider.id === 'archive' ? `${provider.label} · replay` : provider.alwaysLive ? `${provider.label} · live` : provider.label}
@@ -37,6 +50,7 @@ export function FlowStatus({ flow, at, loading, error, provider, futuresRead, fu
     return (
       <p className="mf-status" role="status">
         {source}
+        {alert}
         {error
           ? <span>{error} <Button size="S" intent="secondary" onClick={onRescan}>Try again</Button></span>
           : loading
@@ -45,18 +59,21 @@ export function FlowStatus({ flow, at, loading, error, provider, futuresRead, fu
       </p>
     );
   }
-  const age = at != null ? describeDataAge(at, now, flow.segment) : null;
+  const age = (observedAt ?? at) != null ? describeDataAge((observedAt ?? at) as number, now, flow.segment) : null;
   const updating = futuresRead < futuresTotal || flow.provisional;
   const total = flow.futures.total;
-  const stamp = at != null ? `${dateFormat.format(at)}, ${clockOf(at)}` : null;
+  const stampOf = (ms: number) => `${dateFormat.format(ms)}, ${clockOf(ms)}`;
+  const stamp = at != null ? stampOf(at) : null;
   return (
     <p className={`mf-status${updating ? ' is-updating' : ''}`} role="status">
       {source}
+      {alert}
       <span className="mf-status__counts">
         <b className="mf-tone is-bullish">{flow.bullish.length} up</b>
         <span aria-hidden="true"> · </span><span>{flow.rangebound.length} flat</span>
         <span aria-hidden="true"> · </span><b className="mf-tone is-bearish">{flow.bearish.length} down</b>
         <span> of {total}</span>
+        {coverage && coverage.have < coverage.of && <> · <span className="mf-status__warn">{coverage.have} of {coverage.of} underlyings priced</span></>}
       </span>
       {updating ? (
         <span className="mf-status__load">
@@ -65,13 +82,13 @@ export function FlowStatus({ flow, at, loading, error, provider, futuresRead, fu
         </span>
       ) : (
         <span className="mf-status__time">
-          {stamp && <>As of {stamp}</>}
+          {observedAt != null ? <>Prices observed {stampOf(observedAt)}{stamp && <> · fetched {stamp}</>}</> : stamp && <>As of {stamp}</>}
           {flow.futures.latestAt != null && <> · futures to {clockOf(flow.futures.latestAt)}</>}
           {flow.futures.failed > 0 && <> · <span className="mf-status__warn">{flow.futures.failed} could not load</span></>}
         </span>
       )}
       {/* A replay (the demo, a recorded day) says what it is in its source label instead. */}
-      {age?.aged && !provider?.alwaysLive && <span className="mf-status__aged">{updating && stamp ? `As of ${stamp}, ` : ''}an earlier session</span>}
+      {age?.aged && !provider?.alwaysLive && <span className="mf-status__aged">{updating && (observedAt ?? at) != null ? `As of ${stampOf((observedAt ?? at) as number)}, ` : ''}an earlier session</span>}
     </p>
   );
 }

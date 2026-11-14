@@ -10,7 +10,7 @@ import {
  * calendar. Every function here delegates to marketSession.ts, so the F&O board behaves exactly as it did before segments.
  *
  * `mcx` is MCX commodity futures and options: 09:00 to 23:30 IST on weekdays, to 23:55 while US daylight saving is in force
- * (the exchange moves its close with it), and its own holidays. The two segments never share a session date, a
+ * (the exchange moves its close with it) and, as an exception, through the winter of 2026-27 (see MCX_LATE_CLOSE_RANGES), and its own holidays. The two segments never share a session date, a
  * live-hours test or an expiry cut-off: at 20:00 the F&O board is closed and the commodity board is live.
  */
 
@@ -71,6 +71,12 @@ export const MCX_OPEN_MINUTE = 9 * 60;
 const MCX_CLOSE_MINUTE = 23 * 60 + 30;
 /** MCX's close while US daylight saving is in force. */
 const MCX_CLOSE_MINUTE_US_DST = 23 * 60 + 55;
+/**
+ * The winter exception: from 2 Nov 2026 to 13 Mar 2027 (inclusive) MCX keeps the non-agricultural session open to 23:55 although US daylight saving
+ * has ended (MCX circular 550/2026, as it was reported to us; the circular itself could not be fetched here). PROVISIONAL: confirm it against the
+ * circular and the exchange's notices, and delete the range when it stops being true. From 14 Mar 2027 the daylight-saving rule gives 23:55 again.
+ */
+const MCX_LATE_CLOSE_RANGES: ReadonlyArray<readonly [string, string]> = [['2026-11-02', '2027-03-13']];
 
 /**
  * Days MCX is shut for BOTH sessions. PROVISIONAL: only the closures that are the same every year (Republic Day, Good Friday,
@@ -96,7 +102,9 @@ export function usDaylightSaving(dateKey: string): boolean {
 }
 
 function mcxCloseMinute(time: number | Date): number {
-  return usDaylightSaving(dateKeyOf(time)) ? MCX_CLOSE_MINUTE_US_DST : MCX_CLOSE_MINUTE;
+  const key = dateKeyOf(time);
+  const late = usDaylightSaving(key) || MCX_LATE_CLOSE_RANGES.some(([from, to]) => key >= from && key <= to);
+  return late ? MCX_CLOSE_MINUTE_US_DST : MCX_CLOSE_MINUTE;
 }
 
 function mcxTradingDay(time: number | Date): boolean {

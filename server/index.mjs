@@ -183,6 +183,7 @@ function schedule(c) {
 // ── Futures, on demand ──────────────────────────────────────────────────────
 
 const futuresCache = new Map();
+let trackerCachedAt = 0;
 async function futuresFor(c, symbol, session) {
   const key = `${symbol}|${session}`;
   const held = futuresCache.get(key);
@@ -326,16 +327,32 @@ async function handle(req, res) {
 
   // The built page; any other path is the page itself (its router is in memory).
   if (fs.existsSync(DIST)) {
-  // The tracker is the feed service's own (scored and judged with the India F&O app's functions): pass its answer through unchanged.
+  // The tracker is the feed service's own (scored and judged with the India F&O app's functions): pass its answer through unchanged. The last good
+  // answer is kept on disk, so while the feed service is down (a weekend, a restart, a failed login) the recorded trades are still readable, marked
+  // `stale` with the time they were last read. Nothing in it is refreshed or invented.
   if (p === '/api/tracker') {
     const base = (process.env.MF_HTTP_BASE_URL || '').replace(/\/+$/, '');
     if (!base) return send(res, 404, { error: 'The tracker needs the live feed service (MF_HTTP_BASE_URL).' });
+    const cacheFile = path.join(DATA_DIR, 'tracker-cache.json');
     try {
       const upstream = await fetch(`${base}/tracker`, { signal: AbortSignal.timeout(8000) });
-      return send(res, upstream.status, await upstream.json());
+      const body = await upstream.json();
+      if (upstream.ok && !body?.error && Date.now() - trackerCachedAt > 60_000) {
+        trackerCachedAt = Date.now();
+        try {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+          fs.writeFileSync(cacheFile, JSON.stringify({ cachedAt: trackerCachedAt, body }));
+        } catch (error) { log('tracker cache not saved:', error?.message || error); }
+      }
+      return send(res, upstream.status, body);
     } catch (error) {
       log('tracker failed:', error?.message || error);
-      return send(res, 502, { error: 'The tracker did not answer.' });
+      try {
+        const held = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+        return send(res, 200, { ...held.body, stale: { cachedAt: held.cachedAt, reason: 'The live feed service did not answer.' } });
+      } catch {
+        return send(res, 502, { error: 'The tracker did not answer.' });
+      }
     }
   }
 

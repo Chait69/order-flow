@@ -26,13 +26,24 @@ describe('the MCX profile', () => {
     expect(MCX_SESSION.isSessionTime(ist('2026-11-09', '08:59'))).toBe(false);
   });
 
-  it('closes at 23:30, or 23:55 while US daylight saving is in force', () => {
-    expect(MCX_SESSION.isSessionTime(ist('2026-11-09', '23:30'))).toBe(true);
-    expect(MCX_SESSION.isSessionTime(ist('2026-11-09', '23:31'))).toBe(false);
+  it('closes at 23:55 while US daylight saving is in force and through the winter of 2026-27, at 23:30 otherwise', () => {
     expect(MCX_SESSION.isSessionTime(ist('2026-10-15', '23:50'))).toBe(true);
     expect(MCX_SESSION.isSessionTime(ist('2026-10-15', '23:56'))).toBe(false);
-    expect(sessionMinutes(MCX_SESSION, '2026-11-09')).toBe(870);
+    expect(MCX_SESSION.isSessionTime(ist('2026-11-09', '23:55'))).toBe(true);        // the winter exception
+    expect(MCX_SESSION.isSessionTime(ist('2026-11-09', '23:56'))).toBe(false);
+    expect(MCX_SESSION.isSessionTime(ist('2027-02-10', '23:50'))).toBe(true);
+    expect(MCX_SESSION.isSessionTime(ist('2027-11-15', '23:30'))).toBe(true);        // after the exception and outside daylight saving: 23:30 again
+    expect(MCX_SESSION.isSessionTime(ist('2027-11-15', '23:31'))).toBe(false);
+    expect(sessionMinutes(MCX_SESSION, '2026-11-09')).toBe(895);
     expect(sessionMinutes(MCX_SESSION, '2026-10-15')).toBe(895);
+    expect(sessionMinutes(MCX_SESSION, '2027-11-15')).toBe(870);
+  });
+
+  it('holds the winter exception from 2 November 2026 to 13 March 2027 and no longer', () => {
+    expect(MCX_SESSION.isSessionTime(ist('2026-11-02', '23:55'))).toBe(true);
+    expect(MCX_SESSION.isSessionTime(ist('2027-03-12', '23:55'))).toBe(true);
+    expect(MCX_SESSION.isSessionTime(ist('2027-03-15', '23:55'))).toBe(true);        // US daylight saving began on 14 March 2027
+    expect(MCX_SESSION.isSessionTime(ist('2027-11-15', '23:55'))).toBe(false);
   });
 
   it('follows the US clock change on the right Sundays (8 March and 1 November 2026)', () => {
@@ -63,14 +74,14 @@ describe('the MCX profile', () => {
   it('settles an expiry at its own close, not at NSE’s', () => {
     expect(MCX_SESSION.isExpirySettled('2026-11-09', ist('2026-11-09', '20:00'))).toBe(false);
     expect(FNO_SESSION.isExpirySettled('2026-11-09', ist('2026-11-09', '20:00'))).toBe(true);
-    expect(MCX_SESSION.isExpirySettled('2026-11-09', ist('2026-11-09', '23:45'))).toBe(true);
+    expect(MCX_SESSION.isExpirySettled('2026-11-09', ist('2026-11-09', '23:58'))).toBe(true);
     expect(MCX_SESSION.filterLiveExpiries(['2026-11-19', '2026-11-09', '2026-11-19', '2026-12-18', 'junk'], ist('2026-11-09', '20:00')))
       .toEqual(['2026-11-09', '2026-11-19', '2026-12-18']);
   });
 
   it('gives the session bounds of the date', () => {
     const { open, close } = MCX_SESSION.sessionBounds(ist('2026-11-09', '12:00'));
-    expect([open, close]).toEqual([ist('2026-11-09', '09:00'), ist('2026-11-09', '23:30')]);
+    expect([open, close]).toEqual([ist('2026-11-09', '09:00'), ist('2026-11-09', '23:55')]);
   });
 });
 

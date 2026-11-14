@@ -227,6 +227,32 @@ describe('the status line', () => {
     expect(screen.getByText('an earlier session')).toHaveClass('mf-status__aged');
   });
 
+  it('shows when the prices were observed apart from when this server fetched them', () => {
+    const observed = OPEN - 12 * 60 * MINUTE;                 // the vendor's last trade time, long before the server built this file
+    render(<FlowStatus {...base} flow={flow} at={OPEN + 60 * MINUTE} observedAt={observed} now={OPEN + 3 * 60 * MINUTE} />);
+    const text = screen.getByRole('status').textContent ?? '';
+    expect(text).toContain('Prices observed 8 Oct, 21:15');
+    expect(text).toContain('fetched 9 Oct, 10:15');
+    expect(text).not.toContain('As of 9 Oct');
+    expect(screen.getByText('an earlier session')).toHaveClass('mf-status__aged');   // judged by the observation, not by the fetch
+  });
+
+  it('says so when the live feed has a problem, even while older data is on screen', () => {
+    render(<FlowStatus {...base} flow={flow} at={OPEN} now={OPEN} problem="The data provider did not answer. The server log has the detail" />);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Live feed problem');
+    expect(alert.textContent).toContain('showing the last data');
+    expect(alert).toHaveAttribute('title', 'The data provider did not answer. The server log has the detail');
+    expect(alert.getAttribute('aria-label')).toContain('Showing the last data that arrived');
+  });
+
+  it('says how many underlyings are priced when some are missing, and nothing when all are', () => {
+    const { rerender } = render(<FlowStatus {...base} flow={flow} at={OPEN} now={OPEN} coverage={{ have: 2, of: 10 }} />);
+    expect(screen.getByText('2 of 10 underlyings priced')).toHaveClass('mf-status__warn');
+    rerender(<FlowStatus {...base} flow={flow} at={OPEN} now={OPEN} coverage={{ have: 10, of: 10 }} />);
+    expect(screen.queryByText(/underlyings priced/)).toBeNull();
+  });
+
   it('says it is loading, passes on the server\'s error, and offers to try again', () => {
     const { rerender } = render(<FlowStatus {...base} flow={null} at={null} loading />);
     expect(screen.getByText('Loading the market…')).toBeInTheDocument();

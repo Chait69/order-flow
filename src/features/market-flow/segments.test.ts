@@ -67,7 +67,7 @@ describe('the MCX session on the board', () => {
     const evening = ist(DATE, '20:00');
     expect(nearSeries(file, 'CRUDE', evening, MCX_SESSION)?.expiry).toBe(DATE);
     expect(nearSeries(file, 'CRUDE', evening)?.expiry).toBe('2026-11-19');                     // the F&O profile, for contrast
-    expect(nearSeries({ ...file, at: ist(DATE, '23:45') }, 'CRUDE', ist(DATE, '23:45'), MCX_SESSION)?.expiry).toBe('2026-11-19');
+    expect(nearSeries({ ...file, at: ist(DATE, '23:58') }, 'CRUDE', ist(DATE, '23:58'), MCX_SESSION)?.expiry).toBe('2026-11-19');
   });
 
   it('reads futures through the evening, where F&O trims at 15:30', () => {
@@ -81,7 +81,7 @@ describe('the MCX session on the board', () => {
 
   it('charts the commodity session from 09:00 to its close, and F&O from 09:15 to 15:30', () => {
     const none = { read: 0, unavailable: 0, failed: 0, pending: 0, total: 0, latestAt: null };
-    expect(chartSpan({ date: DATE, window: 'day', futures: none, segment: 'mcx' })).toEqual([ist(DATE, '09:00'), ist(DATE, '23:30')]);
+    expect(chartSpan({ date: DATE, window: 'day', futures: none, segment: 'mcx' })).toEqual([ist(DATE, '09:00'), ist(DATE, '23:55')]);
     expect(chartSpan({ date: DATE, window: 'day', futures: none })).toEqual([ist(DATE, '09:15'), ist(DATE, '15:30')]);
     expect(chartSpan({ date: '2026-10-15', window: 'day', futures: none, segment: 'mcx' })[1]).toBe(ist('2026-10-15', '23:55'));
   });

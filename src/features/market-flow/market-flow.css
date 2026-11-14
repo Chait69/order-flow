@@ -1281,6 +1281,7 @@
 .ui-flow .mf-trk .is-down { color: var(--flow-down-ink); }
 .ui-flow .mf-trk small { color: var(--text-muted); font-size: 11.5px; font-weight: 400; }
 .ui-flow .mf-trk b { font-weight: 650; font-variant-numeric: tabular-nums; }
+.ui-flow .mf-tstale { margin: 0 0 12px; padding: 9px 12px; font-size: 12.5px; line-height: 1.45; border-radius: 10px; color: var(--flow-down-ink); background: color-mix(in srgb, var(--flow-down) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--flow-down) 35%, transparent); }
 .ui-flow .mf-tempty { padding: 18px 4px; font-size: 13px; color: var(--text-muted); }
 .ui-flow .mf-thint { margin: 2px 0 12px; max-width: 96ch; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
 
