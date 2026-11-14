@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Build a replayable session from the exchanges' public F&O archives (no keys).
  *
