@@ -37,8 +37,9 @@ export function FlowStatus({ flow, at, observedAt, coverage, problem, loading, e
   // Short on the page (the status column is narrow); the server's own words are the tooltip and the accessible label.
   const detail = problem ? problem.replace(/[.\s]+$/, '') : '';
   const alert = problem
-    ? <span className="mf-status__warn" role="alert" title={detail} aria-label={`Live feed problem: ${detail}${flow ? '. Showing the last data that arrived' : ''}`}>
-      Live feed problem{flow ? ' · showing the last data' : ''}
+    ? <span className="mf-status__warn mf-status__alert" role="alert" title={detail} aria-label={`Live feed problem: ${detail}${flow ? '. Showing the last data that arrived' : ''}`}>
+      <span className="mf-status__long">Live feed problem{flow ? ' · showing the last data' : ''}</span>
+      <span className="mf-status__short" aria-hidden="true">Feed problem</span>
     </span>
     : null;
   const source = provider ? (
@@ -73,7 +74,7 @@ export function FlowStatus({ flow, at, observedAt, coverage, problem, loading, e
         <span aria-hidden="true"> · </span><span>{flow.rangebound.length} flat</span>
         <span aria-hidden="true"> · </span><b className="mf-tone is-bearish">{flow.bearish.length} down</b>
         <span> of {total}</span>
-        {coverage && coverage.have < coverage.of && <> · <span className="mf-status__warn">{coverage.have} of {coverage.of} underlyings priced</span></>}
+        {coverage && coverage.have < coverage.of && <> · <span className="mf-status__warn mf-status__long">{coverage.have} of {coverage.of} underlyings priced</span><span className="mf-status__warn mf-status__short" aria-hidden="true">{coverage.have}/{coverage.of} priced</span></>}
       </span>
       {updating ? (
         <span className="mf-status__load">
@@ -82,7 +83,7 @@ export function FlowStatus({ flow, at, observedAt, coverage, problem, loading, e
         </span>
       ) : (
         <span className="mf-status__time">
-          {observedAt != null ? <>Prices observed {stampOf(observedAt)}{stamp && <> · fetched {stamp}</>}</> : stamp && <>As of {stamp}</>}
+          {observedAt != null ? <>Prices observed {stampOf(observedAt)}{stamp && <span className="mf-status__fetched"> · fetched {stamp}</span>}</> : stamp && <>As of {stamp}</>}
           {flow.futures.latestAt != null && <> · futures to {clockOf(flow.futures.latestAt)}</>}
           {flow.futures.failed > 0 && <> · <span className="mf-status__warn">{flow.futures.failed} could not load</span></>}
         </span>

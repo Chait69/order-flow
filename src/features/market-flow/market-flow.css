@@ -506,6 +506,14 @@
 .mf-strip__head { grid-column: 1 / -1; min-width: 0; }
 .mf-strip__head .mf-status { flex-wrap: nowrap; justify-content: flex-start; margin-left: 0; overflow: hidden; font-size: 11.5px; }
 .mf-strip__head .mf-status__time { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The strip is one fixed-height line: the source and the problem label keep their own width (they used to wrap to four lines and stretch the head over the
+   chart) and use their short wording; the time gives way instead, and the fetch time is left to the tooltip. */
+.mf-status__short { display: none; }
+.mf-strip__head .mf-status > :is(.mf-status__source, .mf-status__alert) { flex: none; white-space: nowrap; }
+.mf-strip__head .mf-status__long { display: none; }
+.mf-strip__head .mf-status__short { display: inline; }
+.mf-strip__head .mf-status__fetched { display: none; }
+.mf-strip__head .mf-status__counts { flex: none; }
 .mf-strip svg { display: block; overflow: visible; }
 .mf-strip circle.is-up { fill: var(--flow-up); }
 .mf-strip circle.is-down { fill: var(--flow-down); }
