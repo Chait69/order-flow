@@ -87,6 +87,15 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
     <>
       <CapsuleSegmented options={VIEWS} value={view} onChange={setView} ariaLabel="View" groupId="flow-view" size="page" className="ui-flow-universe" />
       <CapsuleSegmented options={UNIVERSES} value={scope} onChange={setScope} ariaLabel="Underlyings" groupId="flow-universe" size="page" className="ui-flow-universe" />
+      {scope === 'mcx' && (
+        <span
+          className="ui-mcx-unverified-note"
+          title="MCX/TRD/550/2026 unverified against circular text (blocker: circular text unavailable). Empirical check pending on session close 23:30 vs 23:55"
+          style={{ fontSize: '11px', color: '#f59e0b', alignSelf: 'center', whiteSpace: 'nowrap' }}
+        >
+          MCX session times unverified
+        </span>
+      )}
       <ThemeToggle onChange={theme => applyTheme(theme)} size="md" className="ui-flow-theme" />
     </>
   );

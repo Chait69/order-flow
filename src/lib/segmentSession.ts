@@ -72,10 +72,23 @@ const MCX_CLOSE_MINUTE = 23 * 60 + 30;
 /** MCX's close while US daylight saving is in force. */
 const MCX_CLOSE_MINUTE_US_DST = 23 * 60 + 55;
 /**
- * The winter exception: from 2 Nov 2026 to 13 Mar 2027 (inclusive) MCX keeps the non-agricultural session open to 23:55 although US daylight saving
- * has ended (MCX circular 550/2026, as it was reported to us; the circular itself could not be fetched here). PROVISIONAL: confirm it against the
- * circular and the exchange's notices, and delete the range when it stops being true. From 14 Mar 2027 the daylight-saving rule gives 23:55 again.
+ * MCX Calendar Status: UNVERIFIED against the circular (BLOCKER).
+ * MCX circular MCX/TRD/550/2026 text could not be fetched (HTTP 403).
+ * User reported that circular 550/2026 specifies non-agricultural trading 09:00-23:55 IST
+ * for 2 November 2026 through 12 March 2027 inclusive, and MCX/TRD/068/2026 specifies a 23:30 close from 9 March 2026.
+ * Current implementation keeps 2026-11-02 to 2027-03-13 (derived from US daylight-saving calendar).
+ * As circular text was not provided, existing behavior is preserved and flagged as unverified.
+ * Empirical cross-check scheduled for next live trading session: check whether ticks stop at 23:30 or 23:55.
  */
+export const MCX_CALENDAR_STATUS = {
+  verified: false,
+  circular: 'MCX/TRD/550/2026',
+  status: 'unverified against the circular (blocker: circular text unavailable)',
+  statedRange: ['2026-11-02', '2027-03-12'] as const,
+  implementedRange: ['2026-11-02', '2027-03-13'] as const,
+  empiricalCheckPending: true,
+};
+
 const MCX_LATE_CLOSE_RANGES: ReadonlyArray<readonly [string, string]> = [['2026-11-02', '2027-03-13']];
 
 /**

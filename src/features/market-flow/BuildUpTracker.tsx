@@ -27,8 +27,23 @@ interface FocusItem {
   id: number; day: string; seg: 'fno' | 'mcx'; symbol: string; kind: string; side: 'long' | 'short'; score: number; buildUp: string; chgPct: number; oiChgPct: number;
   close: number; high: number; low: number; pos: number; atr: number; trigger: number; levels: Ladder; result: FocusResult; closed: boolean;
 }
+interface ShadowSetupItem {
+  symbol: string; orHigh: number; orLow: number; orSpan: number; atr: number; barsCount: number;
+  qualified: boolean; disqualificationReason: string | null; costGatePassed: boolean; costInR: number; costToT1: number;
+}
+interface ShadowTradeItem {
+  id: number; symbol: string; side: 'long' | 'short'; triggerAt: number; entryAt: number;
+  entryPrice: number; stopPrice: number; t1Price: number; t2Price: number; costInR: number;
+  outcome: OutcomeName; exitPrice: number | null; exitAt: number | null; levelReached: number;
+  grossR: number | null; netR: number | null; settled: boolean;
+}
+interface ShadowOrbData {
+  version: string; status: string; rules: { orInterval: string; entries: string; squareOff: string };
+  setups: ShadowSetupItem[]; trades: ShadowTradeItem[];
+}
 interface TrackerData {
   focus?: { latest: FocusItem[]; history: FocusItem[]; day: string | null };
+  shadowOrb?: ShadowOrbData;
   asof: number | null; pricedAt?: number; cadence?: { rankEveryMin: number; confirmReads: number; cooldownMin: number };
   lists: Record<string, Pick[]>; trades: Trade[]; minScore: number; recommendedScore: number;
   rules: Record<string, { entries: string; squareOff: string }>; note: string; error?: string;
@@ -36,7 +51,7 @@ interface TrackerData {
   stale?: { cachedAt: number; reason: string };
 }
 type Seg = 'fno' | 'mcx';
-type Tab = 'live' | 'trades' | 'focus';
+type Tab = 'live' | 'trades' | 'focus' | 'shadow';
 
 const price = (v: number | null | undefined) => (v == null ? '—' : v.toLocaleString('en-IN', { maximumFractionDigits: v >= 1000 ? 1 : 2 }));
 const sgn = (v: number) => (v > 0 ? '+' : v < 0 ? '−' : '');
@@ -404,6 +419,99 @@ function Focus({ data, seg }: { data: TrackerData; seg: Seg }) {
   );
 }
 
+function ShadowView({ data }: { data: TrackerData }) {
+  const orb = data.shadowOrb;
+  const isFresh = Boolean(data.pricedAt && Date.now() - data.pricedAt < 180_000);
+  const setups = orb?.setups ?? [];
+  const trades = orb?.trades ?? [];
+
+  return (
+    <div className="mf-tshadow">
+      <div className="mf-tbar-badges" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <Chip kind="is-flat">experimental / not validated</Chip>
+        <Chip kind={data.stale ? 'is-flat' : 'is-target'}>{data.stale ? 'cached' : 'current'}</Chip>
+        <Chip kind={isFresh ? 'is-target' : 'is-flat'}>{isFresh ? 'fresh' : 'incomplete / stale'}</Chip>
+        <Chip kind="is-open">Setup: {orb?.version ?? 'ORB_FUT_V1'}</Chip>
+        <Chip kind="is-flat">Universe: NSE Stock Futures</Chip>
+      </div>
+
+      <p className="mf-thint">
+        <b>Frozen Setup Protocol (ORB_FUT_V1)</b>: Opening Range 09:15–09:30 IST (minimum 12 completed 1m bars), breakout entries 09:30–13:30, square-off 15:15 IST.
+        Observation only in shadow mode. Minimum evaluation sample: &ge;200 shadow trades over &ge;30 trading sessions with &le;20% no_data rate.
+        Recommendation scores reflect algorithmic ranking components, <i>not statistical win probabilities</i>.
+      </p>
+
+      <section className="mf-tsection" style={{ marginBottom: '20px' }}>
+        <h3>Today&apos;s Setups &amp; Qualification <small>{setups.length} stocks</small></h3>
+        {setups.length === 0 ? (
+          <p className="mf-tempty">Opening range establishes at 09:30 IST on trading days. No setups evaluated yet.</p>
+        ) : (
+          <div className="mf-ttwo">
+            <Column title="Qualified Setups" tint="up" count={setups.filter(s => s.qualified).length}>
+              {setups.filter(s => s.qualified).map(s => (
+                <li key={s.symbol} className="mf-tcard">
+                  <div className="mf-tcard__top">
+                    <div className="mf-tcard__name"><b>{s.symbol}</b><span>{s.costGatePassed ? 'Cost gate passed' : 'Cost policy flagged'}</span></div>
+                    <Chip kind={trades.some(t => t.symbol === s.symbol) ? 'is-target' : 'is-open'}>
+                      {trades.some(t => t.symbol === s.symbol) ? 'shadow entry' : 'waiting for trigger'}
+                    </Chip>
+                  </div>
+                  <p className="mf-tcard__foot">
+                    <span>OR <b>{price(s.orLow)} – {price(s.orHigh)}</b></span>
+                    <span>Span <b>{s.orSpan}</b> pts ({(s.orSpan / (s.atr || 1) * 100).toFixed(0)}% ATR)</span>
+                    <span>Cost <b>{s.costInR.toFixed(2)}R</b> ({Math.round(s.costToT1 * 100)}% T1)</span>
+                  </p>
+                </li>
+              ))}
+            </Column>
+            <Column title="Disqualified / Data Blocked" tint="down" count={setups.filter(s => !s.qualified).length}>
+              {setups.filter(s => !s.qualified).map(s => (
+                <li key={s.symbol} className="mf-tcard">
+                  <div className="mf-tcard__top">
+                    <div className="mf-tcard__name"><b>{s.symbol}</b><span>{s.disqualificationReason ?? 'data blocked'}</span></div>
+                    <Chip kind="is-stop">cancelled / data blocked</Chip>
+                  </div>
+                </li>
+              ))}
+            </Column>
+          </div>
+        )}
+      </section>
+
+      <section className="mf-tsection">
+        <h3>Shadow Trades &amp; Settled Outcomes <small>{trades.length} trades</small></h3>
+        {trades.length === 0 ? (
+          <p className="mf-tempty">No breakout triggers fired yet today. Waiting for trigger between 09:30 and 13:30 IST.</p>
+        ) : (
+          <ul className="mf-trades">
+            {trades.map(tr => {
+              const outKind = tr.outcome === 'target_hit' ? 'is-target' : tr.outcome === 'stop_hit' ? 'is-stop' : tr.outcome === 'pending' ? 'is-open' : 'is-flat';
+              return (
+                <li key={tr.id} className="mf-ttrade">
+                  <div className="mf-ttrade__main is-plain">
+                    <span className="mf-ttrade__who">
+                      <b>{tr.symbol}</b>
+                      <Chip kind={tr.side === 'long' ? 'is-long' : 'is-short'}>{tr.side}</Chip>
+                      <small>{t(tr.entryAt)} · Cost {tr.costInR.toFixed(2)}R</small>
+                    </span>
+                    <span className="mf-ttrade__px"><small>Entry</small><b>{price(tr.entryPrice)}</b></span>
+                    <span className="mf-ttrade__px"><small>Stop</small><b>{price(tr.stopPrice)}</b></span>
+                    <span className="mf-ttrade__px"><small>T1 / T2</small><b>{price(tr.t1Price)} · {price(tr.t2Price)}</b></span>
+                    <span className="mf-ttrade__status">
+                      <Chip kind={outKind}>{tr.outcome.replace('_', ' ')}</Chip>
+                      <small>{tr.settled ? (tr.netR != null ? `Net ${sgn(tr.netR)}${Math.abs(tr.netR).toFixed(2)}R (Gross ${sgn(tr.grossR ?? 0)}${Math.abs(tr.grossR ?? 0).toFixed(2)}R)` : 'Settled') : 'Running'}</small>
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
 /** IST minutes since midnight, to say whether the entry window is open. */
 function istMinute(): number {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
@@ -436,10 +544,12 @@ export function BuildUpTracker() {
   const now = istMinute();
   const logging = Boolean(from && to) && now >= minutesOf(from) && now <= minutesOf(to);
   const openCount = trades.filter(x => (x.result.tight?.outcome ?? 'pending') === 'pending').length;
+  const shadowTradesCount = (data.shadowOrb?.trades ?? []).filter(x => !x.settled).length;
   const tabs: Array<{ id: Tab; label: string; badge?: number }> = [
     { id: 'live', label: 'Live picks' },
     { id: 'trades', label: 'My trades', badge: openCount || undefined },
     { id: 'focus', label: 'Next-day focus' },
+    { id: 'shadow', label: 'Shadow Setup (ORB)', badge: shadowTradesCount || undefined },
   ];
 
   return (
@@ -473,6 +583,7 @@ export function BuildUpTracker() {
       {tab === 'live' ? <LivePicks data={data} seg={seg} /> : null}
       {tab === 'trades' ? <MyTrades trades={trades} /> : null}
       {tab === 'focus' ? <Focus data={data} seg={seg} /> : null}
+      {tab === 'shadow' ? <ShadowView data={data} /> : null}
 
       <details className="mf-thow">
         <summary>How this works</summary>

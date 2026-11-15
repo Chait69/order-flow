@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { profileFor, type Segment } from '@/lib/segmentSession';
 import { getThemeDirectory, type Underlying } from '@/lib/underlyings';
-import { useFuturesFeed, useMarketFeed } from './feed';
+import { providerOfSegment, useFuturesFeed, useMarketFeed } from './feed';
 import { buildMarketFlow, nearSeries, type FlowSettings, type MarketFlow } from './marketFlowModel';
 
 /** While the futures arrive the board is rebuilt at most this often, so a burst of arrivals is one redraw. */
@@ -59,7 +59,7 @@ export function useMarketFlow(universe: readonly Underlying[], settings: FlowSet
     market,
     loading: data.loading,
     error: data.error,
-    provider: data.status?.provider ?? null,
+    provider: providerOfSegment(data.status, segment),
     status: data.status,
     futuresRead: futures.read,
     futuresTotal: futures.total,

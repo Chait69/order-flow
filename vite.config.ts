@@ -14,7 +14,7 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   server: {
     host: '127.0.0.1',
-    port: 5195,
+    port: Number(process.env.VITE_PORT) || 5030,
     // The data is the API's (server/index.mjs, `npm run api`); `npm run dev` starts both.
     proxy: { '/api': `http://127.0.0.1:${process.env.PORT || 8787}` },
   },

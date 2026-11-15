@@ -6,6 +6,7 @@ import { MCX_SESSION } from '@/lib/segmentSession';
 import { describeDataAge } from './dataAge';
 import { chartSpan } from './flowChartModel';
 import { buildMarketFlow, DEFAULT_FLOW_SETTINGS, nearSeries, trimToSession } from './marketFlowModel';
+import { providerOfSegment, type FeedStatus } from './feed';
 import { inUniverse, loadUniverse, saveUniverse, segmentOfUniverse } from './nifty50';
 
 /** The MCX segment on the board (9 Nov 2026): its own universe, clock, expiry cut-off and chart span. */
@@ -104,5 +105,21 @@ describe('the MCX session on the board', () => {
     const tuesdayNoon = ist('2026-11-10', '12:00');
     expect(describeDataAge(monday, tuesdayNoon, 'fno').aged).toBe(false);
     expect(describeDataAge(monday, tuesdayNoon, 'mcx').aged).toBe(true);
+  });
+});
+
+describe('a different source for each segment', () => {
+  const archive = { id: 'archive', label: 'NSE archive', alwaysLive: true };
+  const sample = { id: 'http', label: '6699 MCX sample', alwaysLive: false };
+  const status = { provider: archive, ready: true, lastError: null, segments: { fno: { enabled: true, provider: archive }, mcx: { enabled: true, provider: sample } } } as FeedStatus;
+
+  it('labels each board with its own source', () => {
+    expect(providerOfSegment(status, 'fno')?.label).toBe('NSE archive');
+    expect(providerOfSegment(status, 'mcx')?.label).toBe('6699 MCX sample');
+  });
+
+  it('falls back to the server’s provider when a server does not say, and to nothing before the status is known', () => {
+    expect(providerOfSegment({ provider: archive, ready: true, lastError: null }, 'mcx')?.id).toBe('archive');
+    expect(providerOfSegment(null, 'mcx')).toBeNull();
   });
 });

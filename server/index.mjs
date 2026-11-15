@@ -54,32 +54,35 @@ const bySymbol = new Map(universe.map(u => [u.symbol, u]));
 // `--recorded` (npm run dev:recorded / start:recorded) and `--archive` (npm run dev:archive) are shortcuts for MF_PROVIDER.
 const flagged = ['recorded', 'archive'].find(id => process.argv.includes(`--${id}`));
 const provider = createProvider(universe, flagged);
-const SCAN_DIR = path.join(DATA_DIR, provider.id);
+// The commodity board can come from a different source than F&O: MF_MCX_PROVIDER names one (for example `http`, pointed at a bridge to
+// the India F&O app's recorded MCX data, while F&O stays on the archive). Without it, the one provider serves whatever it supplies.
+const mcxProvider = process.env.MF_MCX_PROVIDER ? createProvider(universe, process.env.MF_MCX_PROVIDER) : null;
+const providerOf = segment => (segment === 'mcx' && mcxProvider ? mcxProvider : provider);
+const providers = [...new Set([provider, mcxProvider].filter(Boolean))];
 
 // ── Collectors: one per segment, each on its own clock ─────────────────────────
 
 /**
  * The board has one collector per exchange segment. `fno` (NSE and BSE F&O) is what the server always did; `mcx` (commodities) runs the
- * same build on MCX's session: its own session date, live hours, expiry cut-off, and its own stored minutes. A provider says which
- * segments it can supply (`provider.segments`, default `['fno']`); a segment it does not supply is simply not served, never faked.
+ * same build on MCX's session: its own session date, live hours, expiry cut-off, and its own stored minutes. Each segment has its own
+ * provider (the one provider by default, or MF_MCX_PROVIDER for MCX). A provider says which segments it can supply
+ * (`provider.segments`, default `['fno']`); a segment its provider does not supply is simply not served, never faked.
  */
-const SEGMENTS = provider.segments ?? ['fno'];
-const clockOf = segment => (provider.now ? provider.now(segment) : Date.now());
-
 function makeCollector(id) {
   const profile = SESSION_PROFILES[id];
   const rows = universe.filter(u => segmentOfExchange(u.exch) === id);
+  const source = providerOf(id);
   return {
-    id, profile, rows,
-    enabled: SEGMENTS.includes(id) && rows.length > 0,
-    /** The F&O segment keeps its original folder, so a restart still finds the day's stored minutes. */
-    dir: id === 'fno' ? SCAN_DIR : path.join(SCAN_DIR, id),
+    id, profile, rows, provider: source,
+    enabled: (source.segments ?? ['fno']).includes(id) && rows.length > 0,
+    /** The F&O segment keeps its original folder (data dir / provider id), so a restart still finds the day's stored minutes. */
+    dir: id === 'fno' ? path.join(DATA_DIR, source.id) : path.join(DATA_DIR, source.id, id),
     /** Expiries are read once a session: they change only when a contract lists or expires. */
     ladderCache: { session: '', bySymbol: new Map() },
     state: { ready: false, building: false, latestJson: null, latest: null, lastBuild: null, lastError: null },
-    now() { return clockOf(id); },
-    isLive() { return provider.alwaysLive || profile.isSessionTime(Date.now()); },
-    session() { return profile.latestSessionDate(new Date(clockOf(id))); },
+    now() { return source.now ? source.now(id) : Date.now(); },
+    isLive() { return source.alwaysLive || profile.isSessionTime(Date.now()); },
+    session() { return profile.latestSessionDate(new Date(this.now())); },
   };
 }
 const collectors = { fno: makeCollector('fno'), mcx: makeCollector('mcx') };
@@ -123,13 +126,13 @@ async function build(c) {
       try {
         let ladder = ladderCache.bySymbol.get(u.symbol);
         if (!ladder) {
-          ladder = await provider.expiries(u);
+          ladder = await c.provider.expiries(u);
           if (ladder.length) ladderCache.bySymbol.set(u.symbol, ladder);
         }
         const live = profile.filterLiveExpiries(ladder, clock);
         ladders[u.symbol] = live;
         if (!live[0]) continue;
-        const chain = await provider.optionChain(u, live[0]);
+        const chain = await c.provider.optionChain(u, live[0]);
         const encoded = encodeSeries(u, { ...chain, expiry: chain.expiry || live[0] }, c.now());
         if (encoded) series.push(encoded); else failed.push(u.symbol);
       } catch (error) {
@@ -189,14 +192,14 @@ async function futuresFor(c, symbol, session) {
   const held = futuresCache.get(key);
   const live = c.isLive();
   if (held && (!live || Date.now() - held.at < FUTURES_KEEP_MS)) return held.value;
-  const value = provider.futures(bySymbol.get(symbol), session).then(months => ({ symbol, session, months }));
+  const value = c.provider.futures(bySymbol.get(symbol), session).then(months => ({ symbol, session, months }));
   futuresCache.set(key, { at: Date.now(), value });
   value.catch(() => futuresCache.delete(key));
+  // After the close an answer is kept for the rest of the session, so one without its previous close (the service had not ticked yet) must not be.
+  value.then(v => { if (!v.months?.some(m => m.prevClose != null)) futuresCache.delete(key); }, () => {});
   if (futuresCache.size > 4000) futuresCache.delete(futuresCache.keys().next().value);
   return value;
 }
-  // After the close an answer is kept for the rest of the session, so one without its previous close (the service had not ticked yet) must not be.
-  value.then(v => { if (!v.months?.some(m => m.prevClose != null)) futuresCache.delete(key); }, () => {});
 
 // ── HTTP ──────────────────────────────────────────────────────────────────
 
@@ -271,6 +274,7 @@ async function handle(req, res) {
 
   // One answer per segment. `fno` is the original shape at the top level (older pages read only that); `segments` has each one.
   const statusOf = c => ({
+    provider: { id: c.provider.id, label: c.provider.label, alwaysLive: Boolean(c.provider.alwaysLive) },
     enabled: c.enabled, ready: c.state.ready, clock: c.now(), session: c.session(), live: Boolean(c.isLive()), open: c.profile.isSessionTime(c.now()),
     market: c.state.latest ? { at: c.state.latest.t, date: c.state.latest.date, series: c.state.latest.series.length } : null,
     lastBuild: c.state.lastBuild && { at: c.state.lastBuild.at, series: c.state.lastBuild.series, failed: c.state.lastBuild.failed },
@@ -283,6 +287,14 @@ async function handle(req, res) {
       ready: main.ready, clock: main.clock, session: main.session, market: main.market, lastBuild: main.lastBuild, lastError: main.lastError,
       universe: universe.length,
       segments: { fno: main, mcx: statusOf(collectors.mcx) },
+      mcxCalendarStatus: {
+        verified: false,
+        circularId: "MCX/TRD/550/2026",
+        statedRange: "2026-11-02 to 2027-03-12 (non-agri close 23:55)",
+        implementedRange: "2026-11-02 to 2027-03-13 (non-agri close 23:55)",
+        empiricalCheckPending: "verify whether ticks cease at 23:30 or 23:55 during next session",
+        note: "MCX session times unverified (blocker: circular text unavailable via 403)"
+      }
     });
   }
 
@@ -290,7 +302,7 @@ async function handle(req, res) {
   const segmentParam = url.searchParams.get('segment');
   if (segmentParam !== null && segmentParam !== 'fno' && segmentParam !== 'mcx') return send(res, 400, { error: 'Unknown segment.' });
   const c = collectorOf(segmentParam);
-  const unsupplied = () => send(res, 404, { error: `${provider.label} does not supply ${c.profile.label} data.` });
+  const unsupplied = () => send(res, 404, { error: `${c.provider.label} does not supply ${c.profile.label} data.` });
 
   if (p === '/api/market') {
     if (!c.enabled) return unsupplied();
@@ -310,7 +322,7 @@ async function handle(req, res) {
     if (!bySymbol.has(symbol)) return send(res, 404, { error: 'Unknown underlying.' });
     // The symbol decides the segment, and so the clock: a commodity's current session is MCX's, not NSE's.
     const owner = collectorForSymbol(symbol);
-    if (!owner.enabled) return send(res, 404, { error: `${provider.label} does not supply ${owner.profile.label} data.` });
+    if (!owner.enabled) return send(res, 404, { error: `${owner.provider.label} does not supply ${owner.profile.label} data.` });
     // Only the current session: the page never asks for another, and no visitor can spend the provider's quota on history.
     const current = owner.session();
     const session = url.searchParams.get('session') ?? current;
@@ -323,10 +335,6 @@ async function handle(req, res) {
     }
   }
 
-  if (p === '/underlyings.json') return serveFile(res, path.join(ROOT, 'public/underlyings.json'), 'public, max-age=3600');
-
-  // The built page; any other path is the page itself (its router is in memory).
-  if (fs.existsSync(DIST)) {
   // The tracker is the feed service's own (scored and judged with the India F&O app's functions): pass its answer through unchanged. The last good
   // answer is kept on disk, so while the feed service is down (a weekend, a restart, a failed login) the recorded trades are still readable, marked
   // `stale` with the time they were last read. Nothing in it is refreshed or invented.
@@ -356,6 +364,10 @@ async function handle(req, res) {
     }
   }
 
+  if (p === '/underlyings.json') return serveFile(res, path.join(ROOT, 'public/underlyings.json'), 'public, max-age=3600');
+
+  // The built page; any other path is the page itself (its router is in memory).
+  if (fs.existsSync(DIST)) {
     const file = inside(DIST, p === '/' ? 'index.html' : p.slice(1));
     if (file && fs.existsSync(file) && fs.statSync(file).isFile()) return serveFile(res, file, p.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
     return serveFile(res, path.join(DIST, 'index.html'));
@@ -373,21 +385,24 @@ for (const c of Object.values(collectors)) {
 
 const LOOPBACK = ['127.0.0.1', '::1', 'localhost'];
 server.listen(PORT, HOST, async () => {
-  log(`Order Flow on http://${HOST.includes(':') ? `[${HOST}]` : HOST}:${PORT} · provider: ${provider.label} (${provider.id}) · ${universe.length} underlyings${AUTH ? ' · password on' : ''}`);
+  log(`Order Flow on http://${HOST.includes(':') ? `[${HOST}]` : HOST}:${PORT} · provider: ${provider.label} (${provider.id})${mcxProvider ? ` · MCX: ${mcxProvider.label} (${mcxProvider.id})` : ''} · ${universe.length} underlyings${AUTH ? ' · password on' : ''}`);
   if (!LOOPBACK.includes(HOST) && !AUTH) log('WARNING: listening beyond this machine with no password. Set MF_BASIC_AUTH=user:password, or put the server behind a proxy that signs people in.');
   const active = Object.values(collectors).filter(c => c.enabled);
-  try {
-    await provider.init?.();
-    for (const c of active) c.state.ready = true;
-  } catch (error) {
-    for (const c of active) c.state.lastError = { at: Date.now(), message: `Provider failed to start: ${error?.message || error}` };
-    log(`Provider failed to start: ${error?.message || error}`);
-    return;
+  // Each provider starts once; one that fails leaves only its own segments unserved.
+  const failed = new Set();
+  for (const source of providers) {
+    try {
+      await source.init?.();
+    } catch (error) {
+      failed.add(source);
+      for (const c of active.filter(x => x.provider === source)) c.state.lastError = { at: Date.now(), message: `Provider failed to start: ${error?.message || error}` };
+      log(`${source.label} failed to start: ${error?.message || error}`);
+    }
   }
-  for (const c of active) {
+  for (const c of active.filter(x => !failed.has(x.provider))) {
+    c.state.ready = true;
     await build(c);
     schedule(c);
   }
-  const skipped = Object.values(collectors).filter(c => !c.enabled && c.rows.length);
-  if (skipped.length) log(`${provider.label} does not supply: ${skipped.map(c => `${c.profile.label} (${c.rows.length} underlyings)`).join(', ')}`);
+  for (const c of Object.values(collectors).filter(x => !x.enabled && x.rows.length)) log(`${c.provider.label} does not supply ${c.profile.label} (${c.rows.length} underlyings)`);
 });

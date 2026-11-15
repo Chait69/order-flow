@@ -20,7 +20,7 @@ export interface FeedStatus {
   lastError: { message: string } | null;
   /** Each segment's own session and whether this server's provider supplies it. Absent from an older server: then only F&O is served. */
   segments?: Partial<Record<Segment, {
-    enabled: boolean; session?: string; underlyings?: number;
+    enabled: boolean; session?: string; underlyings?: number; provider?: { id: string; label: string; alwaysLive: boolean };
     /** The segment's last good build, and the last time a build failed (cleared by the next good one). */
     market?: { at: number; date: string; series: number } | null; lastError?: { at: number; message: string } | null;
   }>>;
@@ -60,7 +60,12 @@ export function useFeedStatus(): FeedStatus | null {
 }
 
 /** True while the numbers can move: in the segment's market hours, or always for a provider that is always live (the demo). */
-const moving = (status: FeedStatus | null, segment: Segment = 'fno') => Boolean(status?.provider.alwaysLive) || profileFor(segment).isSessionTime(Date.now());
+const moving = (status: FeedStatus | null, segment: Segment = 'fno') => Boolean(providerOfSegment(status, segment)?.alwaysLive) || profileFor(segment).isSessionTime(Date.now());
+
+/** The provider behind a segment: its own when the server says (each segment can have a different source), else the server's. */
+export function providerOfSegment(status: FeedStatus | null, segment: Segment = 'fno') {
+  return status?.segments?.[segment]?.provider ?? status?.provider ?? null;
+}
 
 /** The session the server's provider is on for a segment: its own, else (an older server) F&O's, else the segment's latest by the real clock. */
 export function sessionOfStatus(status: FeedStatus | null, segment: Segment = 'fno'): string {
@@ -148,7 +153,7 @@ export function useMarketFeed(segment: Segment = 'fno') {
     return () => window.clearInterval(timer);
   }, [market, segment]);
 
-  if (unsupplied) return { market: null, loading: false, error: `${status?.provider.label ?? 'This source'} does not supply ${profileFor(segment).label} data.`, status, rescan: () => setTick(value => value + 1) };
+  if (unsupplied) return { market: null, loading: false, error: `${providerOfSegment(status, segment)?.label ?? 'This source'} does not supply ${profileFor(segment).label} data.`, status, rescan: () => setTick(value => value + 1) };
   return { market, loading: !market, error, status, rescan: () => setTick(value => value + 1) };
 }
 
@@ -179,7 +184,7 @@ export function useFuturesFeed(symbols: readonly string[], enabled: boolean, sta
 
   useEffect(() => {
     if (!enabled) return undefined;
-    const every = statusRef.current?.provider.alwaysLive ? 60_000 : 120_000;
+    const every = providerOfSegment(statusRef.current, segment)?.alwaysLive ? 60_000 : 120_000;
     const timer = window.setInterval(() => { if (visible() && moving(statusRef.current, segment)) setTick(value => value + 1); }, every);
     return () => window.clearInterval(timer);
   }, [enabled, status, segment]);

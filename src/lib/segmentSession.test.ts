@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isMarketSessionTime, getLatestTradingSessionDate } from './marketSession';
-import { FNO_SESSION, MCX_SESSION, profileFor, segmentOfExchange, sessionMinutes, usDaylightSaving } from './segmentSession';
+import { FNO_SESSION, MCX_SESSION, MCX_CALENDAR_STATUS, profileFor, segmentOfExchange, sessionMinutes, usDaylightSaving } from './segmentSession';
 
 const ist = (date: string, hhmm: string) => Date.parse(`${date}T${hhmm}:00+05:30`);
 
@@ -44,6 +44,14 @@ describe('the MCX profile', () => {
     expect(MCX_SESSION.isSessionTime(ist('2027-03-12', '23:55'))).toBe(true);
     expect(MCX_SESSION.isSessionTime(ist('2027-03-15', '23:55'))).toBe(true);        // US daylight saving began on 14 March 2027
     expect(MCX_SESSION.isSessionTime(ist('2027-11-15', '23:55'))).toBe(false);
+  });
+
+  it('records MCX calendar status as unverified against circular MCX/TRD/550/2026 blocker', () => {
+    expect(MCX_CALENDAR_STATUS.verified).toBe(false);
+    expect(MCX_CALENDAR_STATUS.circular).toBe('MCX/TRD/550/2026');
+    expect(MCX_CALENDAR_STATUS.statedRange).toEqual(['2026-11-02', '2027-03-12']);
+    expect(MCX_CALENDAR_STATUS.implementedRange).toEqual(['2026-11-02', '2027-03-13']);
+    expect(MCX_CALENDAR_STATUS.empiricalCheckPending).toBe(true);
   });
 
   it('follows the US clock change on the right Sundays (8 March and 1 November 2026)', () => {
