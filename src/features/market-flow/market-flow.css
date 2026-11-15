@@ -1408,3 +1408,77 @@
   .ui-flow .mf-ttrade__px { display: none; }
   .ui-flow .mf-ttrade__main.is-plain { grid-template-columns: 1fr auto; }
 }
+
+.ui-flow .mf-tbar-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ui-flow .mf-tsection { margin-bottom: 20px; }
+
+/* ── Tracker Tag Badges (R2 & T2) ─────────────────────────────────── */
+.ui-flow .mf-tag-groups { display: inline-flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin: 2px 0; }
+.ui-flow .mf-tag-group { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.ui-flow .mf-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  line-height: 1.25;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline, color-mix(in srgb, var(--line-strong) 70%, transparent));
+  color: var(--text);
+  background: var(--surface-raised);
+  white-space: nowrap;
+  font-weight: 500;
+  box-sizing: border-box;
+}
+.ui-flow .mf-tag-badge.is-unknown {
+  border-style: dashed;
+  color: var(--text-muted);
+  border-color: color-mix(in srgb, var(--text-muted) 50%, transparent);
+}
+.ui-flow .mf-tag-badge.is-neutral {
+  color: var(--text-muted);
+  border-color: var(--hairline, color-mix(in srgb, var(--line-strong) 60%, transparent));
+}
+.ui-flow .mf-tag-badge.is-orb.is-coloured.is-agree {
+  color: var(--flow-up-ink);
+  border-color: color-mix(in srgb, var(--flow-up) 45%, var(--surface-raised));
+  background: var(--flow-up-wash);
+}
+.ui-flow .mf-tag-badge.is-orb.is-coloured.is-oppose {
+  color: var(--flow-down-ink);
+  border-color: color-mix(in srgb, var(--flow-down) 45%, var(--surface-raised));
+  background: var(--flow-down-wash);
+}
+.ui-flow .mf-tag-icon { font-size: 9.5px; font-weight: 700; line-height: 1; }
+.ui-flow .mf-tag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.ui-flow .mf-tag-toggle input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.ui-flow .mf-tag-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 2.5%, var(--surface-raised));
+  border: 1px solid var(--flow-hair);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -4px 0 12px;
+}
+.ui-flow .mf-tag-caption {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  max-width: 90ch;
+}

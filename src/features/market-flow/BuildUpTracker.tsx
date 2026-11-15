@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 /**
  * Tracker: the strongest build-ups, scored and judged by the live feed service the way the India F&O app does it (see
@@ -21,7 +21,11 @@ interface Outcome { outcome: OutcomeName; time: number | null; exit_price: numbe
 interface TradeTags {
   cost_ok?: boolean | null;
   quote_ok?: boolean | null;
+  orb_side?: string | null;
   orb_agree?: boolean | null;
+  vwap_side?: string | null;
+  rs_side?: string | null;
+  or_side?: string | null;
   ohlc_basis?: boolean | null;
   [key: string]: any;
 }
@@ -177,40 +181,156 @@ function ScoreBadge({ score, strong }: { score: number; strong: boolean }) {
   return <span className={`mf-tscore${strong ? ' is-strong' : ''}`} title={strong ? 'Recommended (score at or above the threshold)' : 'Watch only (below the recommendation threshold)'}>{score}</span>;
 }
 
-function TagBadge({ label, isUnknown }: { label: string; isUnknown?: boolean }) {
+const ColourTagsContext = createContext<{
+  colourTags: boolean;
+  setColourTags: (v: boolean) => void;
+}>({
+  colourTags: false,
+  setColourTags: () => {},
+});
+
+export const useColourTags = () => useContext(ColourTagsContext);
+
+function resolveOrbSide(tags?: TradeTags | null): 'agree' | 'oppose' | 'none' | null {
+  if (!tags) return null;
+  if (tags.orb_side !== undefined) {
+    if (tags.orb_side === 'agree' || tags.orb_side === 'oppose' || tags.orb_side === 'none') {
+      return tags.orb_side;
+    }
+    return null;
+  }
+  if (tags.orb_agree !== undefined) {
+    if (tags.orb_agree === true) return 'agree';
+    if (tags.orb_agree === false) return 'none';
+    return null;
+  }
+  return null;
+}
+
+function TagBadge({
+  label,
+  icon,
+  isUnknown,
+  variant,
+}: {
+  label: string;
+  icon?: string;
+  isUnknown?: boolean;
+  variant?: 'agree' | 'oppose';
+}) {
+  const { colourTags } = useColourTags();
+  const isColoured = colourTags && (variant === 'agree' || variant === 'oppose');
+  const classNames = [
+    'mf-tag-badge',
+    isUnknown ? 'is-unknown' : undefined,
+    variant ? 'is-orb' : 'is-neutral',
+    isColoured ? 'is-coloured' : undefined,
+    isColoured && variant === 'agree' ? 'is-agree' : undefined,
+    isColoured && variant === 'oppose' ? 'is-oppose' : undefined,
+  ].filter(Boolean).join(' ');
+
   return (
-    <span
-      className="mf-tag-badge"
-      style={{
-        display: 'inline-block',
-        fontSize: '10px',
-        lineHeight: 1.2,
-        padding: '1px 5px',
-        borderRadius: '3px',
-        border: '1px solid #71717a',
-        color: isUnknown ? '#a1a1aa' : '#e4e4e7',
-        backgroundColor: 'transparent',
-        whiteSpace: 'nowrap',
-        fontWeight: 400,
-      }}
-    >
-      {label}
+    <span className={classNames}>
+      {icon ? <span className="mf-tag-icon" aria-hidden="true">{icon}</span> : null}
+      <span className="mf-tag-label">{label}</span>
     </span>
   );
 }
 
-function TradeTagsBadges({ tags }: { tags?: TradeTags | null }) {
+export function TradeTagsBadges({
+  tags,
+  side = 'long',
+}: {
+  tags?: TradeTags | null;
+  side?: 'long' | 'short';
+}) {
+  const orbState = resolveOrbSide(tags);
+  let orbLabel = 'ORB n/a';
+  let orbIcon: string | undefined = undefined;
+  let orbVariant: 'agree' | 'oppose' | undefined = undefined;
+  let orbUnknown = true;
+
+  if (orbState === 'agree') {
+    orbLabel = side === 'short' ? 'ORB short' : 'ORB long';
+    orbIcon = '✓';
+    orbVariant = 'agree';
+    orbUnknown = false;
+  } else if (orbState === 'oppose') {
+    orbLabel = side === 'short' ? 'ORB long' : 'ORB short';
+    orbIcon = '✕';
+    orbVariant = 'oppose';
+    orbUnknown = false;
+  } else if (orbState === 'none') {
+    orbLabel = 'no ORB trigger';
+    orbIcon = '—';
+    orbVariant = undefined;
+    orbUnknown = false;
+  }
+
+  // Directional grey tags: vwap_side, rs_side, or_side
+  const vwapSide = tags?.vwap_side;
+  const vwapUnknown = vwapSide == null;
+  let vwapLabel = 'VWAP n/a';
+  let vwapIcon: string | undefined = undefined;
+  if (vwapSide === 'agree') {
+    vwapLabel = side === 'short' ? 'below VWAP' : 'above VWAP';
+    vwapIcon = side === 'short' ? '↓' : '↑';
+  } else if (vwapSide === 'oppose') {
+    vwapLabel = side === 'short' ? 'above VWAP' : 'below VWAP';
+    vwapIcon = side === 'short' ? '↑' : '↓';
+  } else if (vwapSide === 'none') {
+    vwapLabel = 'at VWAP';
+    vwapIcon = '—';
+  }
+
+  const rsSide = tags?.rs_side;
+  const rsUnknown = rsSide == null;
+  let rsLabel = 'RS n/a';
+  let rsIcon: string | undefined = undefined;
+  if (rsSide === 'agree') {
+    rsLabel = side === 'short' ? 'weaker than index' : 'stronger than index';
+    rsIcon = side === 'short' ? '↓' : '↑';
+  } else if (rsSide === 'oppose') {
+    rsLabel = side === 'short' ? 'stronger than index' : 'weaker than index';
+    rsIcon = side === 'short' ? '↑' : '↓';
+  } else if (rsSide === 'none') {
+    rsLabel = 'neutral RS';
+    rsIcon = '—';
+  }
+
+  const orSide = tags?.or_side;
+  const orUnknown = orSide == null;
+  let orLabel = 'OR n/a';
+  let orIcon: string | undefined = undefined;
+  if (orSide === 'agree') {
+    orLabel = side === 'short' ? 'below opening range' : 'above opening range';
+    orIcon = side === 'short' ? '↓' : '↑';
+  } else if (orSide === 'oppose') {
+    orLabel = side === 'short' ? 'above opening range' : 'below opening range';
+    orIcon = side === 'short' ? '↑' : '↓';
+  } else if (orSide === 'none') {
+    orLabel = 'inside range';
+    orIcon = '—';
+  }
+
+  // Data group: cost_ok, quote_ok, ohlc_basis
   const costLabel = tags?.cost_ok === true ? 'cost ok' : tags?.cost_ok === false ? 'cost high' : 'n/a';
   const quoteLabel = tags?.quote_ok === true ? 'quote ok' : tags?.quote_ok === false ? 'quote weak' : 'n/a';
-  const orbLabel = tags?.orb_agree === true ? 'ORB agrees' : tags?.orb_agree === false ? 'no ORB' : 'n/a';
   const ohlcLabel = tags?.ohlc_basis === true ? 'ohlc' : tags?.ohlc_basis === false ? 'close-only' : 'n/a';
 
   return (
-    <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', margin: '2px 0' }}>
-      <TagBadge label={costLabel} isUnknown={tags?.cost_ok == null} />
-      <TagBadge label={quoteLabel} isUnknown={tags?.quote_ok == null} />
-      <TagBadge label={orbLabel} isUnknown={tags?.orb_agree == null} />
-      <TagBadge label={ohlcLabel} isUnknown={tags?.ohlc_basis == null} />
+    <span className="mf-tag-groups">
+      <span className="mf-tag-group is-direction" aria-label="Direction">
+        <TagBadge label={orbLabel} icon={orbIcon} isUnknown={orbUnknown} variant={orbVariant} />
+        <TagBadge label={vwapLabel} icon={vwapIcon} isUnknown={vwapUnknown} />
+        <TagBadge label={rsLabel} icon={rsIcon} isUnknown={rsUnknown} />
+        <TagBadge label={orLabel} icon={orIcon} isUnknown={orUnknown} />
+      </span>
+      <span className="mf-tag-group is-data" aria-label="Data">
+        <TagBadge label={costLabel} isUnknown={tags?.cost_ok == null} />
+        <TagBadge label={quoteLabel} isUnknown={tags?.quote_ok == null} />
+        <TagBadge label={ohlcLabel} isUnknown={tags?.ohlc_basis == null} />
+      </span>
     </span>
   );
 }
@@ -311,7 +431,7 @@ function TradeRow({ x, open, onToggle }: { x: Trade; open: boolean; onToggle: ()
           <b>{x.symbol}</b>
           <Chip kind={x.side === 'long' ? 'is-long' : 'is-short'}>{x.side}</Chip>
           <small>{t(x.entryAt)} · score {x.score}</small>
-          <TradeTagsBadges tags={x.tags} />
+          <TradeTagsBadges tags={x.tags} side={x.side} />
         </span>
         <span className="mf-ttrade__px">
           <small>Entry</small><b>{price(x.entry)}</b>
@@ -337,7 +457,7 @@ function TradeRow({ x, open, onToggle }: { x: Trade; open: boolean; onToggle: ()
             <div><dt>Targets</dt><dd>{price(lv.t1)} · {price(lv.t2)} · {price(lv.t3)}</dd></div>
             <div><dt>Opposite trade</dt><dd>{x.result.opp_tight?.r != null ? `${sgn(x.result.opp_tight.r)}${Math.abs(x.result.opp_tight.r).toFixed(2)}R` : '—'}</dd></div>
             <div><dt>Wider ladder</dt><dd>{wide && wide.outcome !== 'pending' ? `${statusLabel(wide).text}${wide.r != null ? ` · ${sgn(wide.r)}${Math.abs(wide.r).toFixed(2)}R` : ''}` : 'Open'}</dd></div>
-            <div><dt>Tags</dt><dd><TradeTagsBadges tags={x.tags} /></dd></div>
+            <div><dt>Tags</dt><dd><TradeTagsBadges tags={x.tags} side={x.side} /></dd></div>
             {out === 'target_hit' && r.stop_after ? <div><dt>After target</dt><dd>stopped {t(r.stop_after)}</dd></div> : null}
           </dl>
           {x.reasons.length > 1 ? <ul className="mf-ttrade__why">{x.reasons.slice(1).map(w => <li key={w}>{w}</li>)}</ul> : null}
@@ -382,7 +502,7 @@ function MyTrades({ trades }: { trades: Trade[] }) {
         <Pills label="Side" value={side} onChange={setSide} options={[{ value: 'all', label: 'Long + short' }, { value: 'long', label: 'Long' }, { value: 'short', label: 'Short' }]} />
         <small>{shown.length} of {trades.length}</small>
       </div>
-      <p className="mf-thint" style={{ margin: '8px 0 16px 0', fontSize: '12px' }}>
+      <p className="mf-thint">
         Tags are recorded for research. They are not validated and do not change which trades are taken.
       </p>
       {days.length === 0 ? <p className="mf-tempty">No trades match. A pick is logged the first time it enters the top 5 with a high enough score, inside the entry window.</p> : null}
@@ -479,7 +599,7 @@ function ShadowView({ data }: { data: TrackerData }) {
 
   return (
     <div className="mf-tshadow">
-      <div className="mf-tbar-badges" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+      <div className="mf-tbar-badges">
         <Chip kind="is-flat">experimental / not validated</Chip>
         <Chip kind={data.stale ? 'is-flat' : 'is-target'}>{data.stale ? 'cached' : 'current'}</Chip>
         <Chip kind={isFresh ? 'is-target' : 'is-flat'}>{isFresh ? 'fresh' : 'incomplete / stale'}</Chip>
@@ -493,7 +613,7 @@ function ShadowView({ data }: { data: TrackerData }) {
         Recommendation scores reflect algorithmic ranking components, <i>not statistical win probabilities</i>.
       </p>
 
-      <section className="mf-tsection" style={{ marginBottom: '20px' }}>
+      <section className="mf-tsection">
         <h3>Today&apos;s Setups &amp; Qualification <small>{setups.length} stocks</small></h3>
         {setups.length === 0 ? (
           <p className="mf-tempty">Opening range establishes at 09:30 IST on trading days. No setups evaluated yet.</p>
@@ -532,7 +652,7 @@ function ShadowView({ data }: { data: TrackerData }) {
 
       <section className="mf-tsection">
         <h3>Shadow Trades &amp; Settled Outcomes <small>{trades.length} trades</small></h3>
-        <p className="mf-thint" style={{ margin: '4px 0 12px 0', fontSize: '12px' }}>
+        <p className="mf-thint">
           Tags are recorded for research. They are not validated and do not change which trades are taken.
         </p>
         {trades.length === 0 ? (
@@ -548,7 +668,7 @@ function ShadowView({ data }: { data: TrackerData }) {
                       <b>{tr.symbol}</b>
                       <Chip kind={tr.side === 'long' ? 'is-long' : 'is-short'}>{tr.side}</Chip>
                       <small>{t(tr.entryAt)} · Cost {tr.costInR.toFixed(2)}R</small>
-                      <TradeTagsBadges tags={tr.tags} />
+                      <TradeTagsBadges tags={tr.tags} side={tr.side} />
                     </span>
                     <span className="mf-ttrade__px"><small>Entry</small><b>{price(tr.entryPrice)}</b></span>
                     <span className="mf-ttrade__px"><small>Stop</small><b>{price(tr.stopPrice)}</b></span>
@@ -579,8 +699,21 @@ export function BuildUpTracker() {
   const { data, error } = useTracker();
   const [seg, setSegState] = useState<Seg>(() => remembered('orderFlow:tracker:seg', ['fno', 'mcx'] as const, 'fno'));
   const [tab, setTabState] = useState<Tab>(() => remembered('orderFlow:tracker:tab', ['live', 'trades', 'focus'] as const, 'live'));
+  const [colourTags, setColourTagsState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('orderFlow:tracker:colourTags') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const setSeg = (v: Seg) => { setSegState(v); remember('orderFlow:tracker:seg', v); };
   const setTab = (v: Tab) => { setTabState(v); remember('orderFlow:tracker:tab', v); };
+  const setColourTags = (v: boolean) => {
+    setColourTagsState(v);
+    try {
+      localStorage.setItem('orderFlow:tracker:colourTags', String(v));
+    } catch {}
+  };
 
   if (!data) {
     return (
@@ -609,49 +742,68 @@ export function BuildUpTracker() {
   ];
 
   return (
-    <div className="mf-trk">
-      {data.stale ? (
-        <p className="mf-tstale" role="alert">
-          Cached tracker from {dateFmt.format(data.stale.cachedAt)}, {t(data.stale.cachedAt)}. {data.stale.reason} The picks, CMP and open trades below are as they were then, not live;
-          recorded trades and results are unchanged.
-        </p>
-      ) : null}
-      <header className="mf-trk__head">
-        <div className="mf-tpills is-big" role="group" aria-label="Segment">
-          <button type="button" className={seg === 'fno' ? 'is-on' : ''} aria-pressed={seg === 'fno'} onClick={() => setSeg('fno')}>Stocks (F&amp;O)</button>
-          <button type="button" className={seg === 'mcx' ? 'is-on' : ''} aria-pressed={seg === 'mcx'} onClick={() => setSeg('mcx')}>Commodities (MCX)</button>
-        </div>
-        <p className="mf-trk__status">
-          <span className={`mf-tdot ${logging ? 'is-live' : ''}`} aria-hidden="true" />
-          {logging ? `Logging new trades until ${to}` : `Not logging now: entries ${rule?.entries ?? '—'}`}
-          <small>squares off {rule?.squareOff ?? '—'} IST{data.asof ? ` · ranked ${t(data.asof)}` : ''}{data.cadence ? ` (every ${data.cadence.rankEveryMin} min, order held between)` : ''}{data.pricedAt ? ` · prices ${t(data.pricedAt)}` : ''}</small>
-        </p>
-      </header>
+    <ColourTagsContext.Provider value={{ colourTags, setColourTags }}>
+      <div className="mf-trk">
+        {data.stale ? (
+          <p className="mf-tstale" role="alert">
+            Cached tracker from {dateFmt.format(data.stale.cachedAt)}, {t(data.stale.cachedAt)}. {data.stale.reason} The picks, CMP and open trades below are as they were then, not live;
+            recorded trades and results are unchanged.
+          </p>
+        ) : null}
+        <header className="mf-trk__head">
+          <div className="mf-tpills is-big" role="group" aria-label="Segment">
+            <button type="button" className={seg === 'fno' ? 'is-on' : ''} aria-pressed={seg === 'fno'} onClick={() => setSeg('fno')}>Stocks (F&amp;O)</button>
+            <button type="button" className={seg === 'mcx' ? 'is-on' : ''} aria-pressed={seg === 'mcx'} onClick={() => setSeg('mcx')}>Commodities (MCX)</button>
+          </div>
+          <label className="mf-tag-toggle">
+            <input
+              type="checkbox"
+              checked={colourTags}
+              onChange={e => setColourTags(e.target.checked)}
+            />
+            <span>Colour tags</span>
+          </label>
+          <p className="mf-trk__status">
+            <span className={`mf-tdot ${logging ? 'is-live' : ''}`} aria-hidden="true" />
+            {logging ? `Logging new trades until ${to}` : `Not logging now: entries ${rule?.entries ?? '—'}`}
+            <small>squares off {rule?.squareOff ?? '—'} IST{data.asof ? ` · ranked ${t(data.asof)}` : ''}{data.cadence ? ` (every ${data.cadence.rankEveryMin} min, order held between)` : ''}{data.pricedAt ? ` · prices ${t(data.pricedAt)}` : ''}</small>
+          </p>
+        </header>
 
-      <nav className="mf-ttabs" aria-label="Tracker views">
-        {tabs.map(x => (
-          <button key={x.id} type="button" className={x.id === tab ? 'is-on' : ''} aria-current={x.id === tab ? 'page' : undefined} onClick={() => setTab(x.id)}>
-            {x.label}{x.badge ? <em>{x.badge}</em> : null}
-          </button>
-        ))}
-      </nav>
+        {colourTags ? (
+          <div className="mf-tag-legend" role="note">
+            <span className="mf-tag-badge is-orb is-coloured is-agree">✓ ORB same side</span>
+            <span className="mf-tag-badge is-orb is-coloured is-oppose">✕ ORB opposite side</span>
+            <span className="mf-tag-badge is-neutral">Other tags neutral</span>
+            <span className="mf-tag-caption">Colours show only whether a recorded fact points the same way as the trade. They are not validated and do not change which trades are taken.</span>
+          </div>
+        ) : null}
 
-      {tab === 'live' ? <LivePicks data={data} seg={seg} /> : null}
-      {tab === 'trades' ? <MyTrades trades={trades} /> : null}
-      {tab === 'focus' ? <Focus data={data} seg={seg} /> : null}
-      {tab === 'shadow' ? <ShadowView data={data} /> : null}
+        <nav className="mf-ttabs" aria-label="Tracker views">
+          {tabs.map(x => (
+            <button key={x.id} type="button" className={x.id === tab ? 'is-on' : ''} aria-current={x.id === tab ? 'page' : undefined} onClick={() => setTab(x.id)}>
+              {x.label}{x.badge ? <em>{x.badge}</em> : null}
+            </button>
+          ))}
+        </nav>
 
-      <details className="mf-thow">
-        <summary>How this works</summary>
-        <p>
-          Scored like the India F&amp;O app (:6699): build-up, size of the price and OI move, PCR and room to the option OI wall. A score of {data.recommendedScore} or more is a recommendation;
-          from {data.minScore} a pick is logged. Stop and targets are its tight ATR ladder: stop 0.75 ATR away, targets 0.5, 1.0 and 1.5 ATR. Trades are judged on 1-minute closes and are intraday
-          only: the first of target 1 or the stop to be reached decides it (a target fills at its level, a stop at the close that went through it), and what is still open at the close is squared off there;
-          with no price near the close there is no outcome. Only finished minutes count, and a recorded outcome is never rewritten. R is profit or loss divided by the distance to the stop.
-          These are HYPOTHETICAL research outcomes: no brokerage, taxes or slippage, and no check that you could have traded the size.
-          Bullish means long build-up or short covering; bearish means short build-up or long unwinding. These are suggestions, not advice.
-        </p>
-      </details>
-    </div>
+        {tab === 'live' ? <LivePicks data={data} seg={seg} /> : null}
+        {tab === 'trades' ? <MyTrades trades={trades} /> : null}
+        {tab === 'focus' ? <Focus data={data} seg={seg} /> : null}
+        {tab === 'shadow' ? <ShadowView data={data} /> : null}
+
+        <details className="mf-thow">
+          <summary>How this works</summary>
+          <p>
+            Scored like the India F&amp;O app (:6699): build-up, size of the price and OI move, PCR and room to the option OI wall. A score of {data.recommendedScore} or more is a recommendation;
+            from {data.minScore} a pick is logged. Stop and targets are its tight ATR ladder: stop 0.75 ATR away, targets 0.5, 1.0 and 1.5 ATR. Trades are judged on 1-minute closes and are intraday
+            only: the first of target 1 or the stop to be reached decides it (a target fills at its level, a stop at the close that went through it), and what is still open at the close is squared off there;
+            with no price near the close there is no outcome. Only finished minutes count, and a recorded outcome is never rewritten. R is profit or loss divided by the distance to the stop.
+            These are HYPOTHETICAL research outcomes: no brokerage, taxes or slippage, and no check that you could have traded the size.
+            Bullish means long build-up or short covering; bearish means short build-up or long unwinding. These are suggestions, not advice.
+          </p>
+        </details>
+      </div>
+    </ColourTagsContext.Provider>
   );
 }
