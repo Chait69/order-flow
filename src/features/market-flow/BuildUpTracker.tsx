@@ -18,9 +18,17 @@ interface Pick {
 }
 type OutcomeName = 'pending' | 'target_hit' | 'stop_hit' | 'squared_off' | 'no_data';
 interface Outcome { outcome: OutcomeName; time: number | null; exit_price: number | null; level: number; stop_after: number | null; following?: boolean; pct?: number; r?: number | null; pts?: number }
+interface TradeTags {
+  cost_ok?: boolean | null;
+  quote_ok?: boolean | null;
+  orb_agree?: boolean | null;
+  ohlc_basis?: boolean | null;
+  [key: string]: any;
+}
 interface Trade {
   id: number; day: string; symbol: string; kind: string; side: 'long' | 'short'; score: number; entryAt: number; entry: number; cmp: number | null; atr: number;
   buildUp: string; reasons: string[]; levels: { main: Ladder }; result: Record<string, Outcome>; closed: boolean;
+  tags?: TradeTags | null;
 }
 interface FocusResult { outcome?: string; evalDay?: string; triggeredAt?: number; entry?: number; gap?: boolean; tight?: Outcome & { levels: Levels }; us?: Outcome }
 interface FocusItem {
@@ -36,6 +44,7 @@ interface ShadowTradeItem {
   entryPrice: number; stopPrice: number; t1Price: number; t2Price: number; costInR: number;
   outcome: OutcomeName; exitPrice: number | null; exitAt: number | null; levelReached: number;
   grossR: number | null; netR: number | null; settled: boolean;
+  tags?: TradeTags | null;
 }
 interface ShadowOrbData {
   version: string; status: string; rules: { orInterval: string; entries: string; squareOff: string };
@@ -168,6 +177,44 @@ function ScoreBadge({ score, strong }: { score: number; strong: boolean }) {
   return <span className={`mf-tscore${strong ? ' is-strong' : ''}`} title={strong ? 'Recommended (score at or above the threshold)' : 'Watch only (below the recommendation threshold)'}>{score}</span>;
 }
 
+function TagBadge({ label, isUnknown }: { label: string; isUnknown?: boolean }) {
+  return (
+    <span
+      className="mf-tag-badge"
+      style={{
+        display: 'inline-block',
+        fontSize: '10px',
+        lineHeight: 1.2,
+        padding: '1px 5px',
+        borderRadius: '3px',
+        border: '1px solid #71717a',
+        color: isUnknown ? '#a1a1aa' : '#e4e4e7',
+        backgroundColor: 'transparent',
+        whiteSpace: 'nowrap',
+        fontWeight: 400,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function TradeTagsBadges({ tags }: { tags?: TradeTags | null }) {
+  const costLabel = tags?.cost_ok === true ? 'cost ok' : tags?.cost_ok === false ? 'cost high' : 'n/a';
+  const quoteLabel = tags?.quote_ok === true ? 'quote ok' : tags?.quote_ok === false ? 'quote weak' : 'n/a';
+  const orbLabel = tags?.orb_agree === true ? 'ORB agrees' : tags?.orb_agree === false ? 'no ORB' : 'n/a';
+  const ohlcLabel = tags?.ohlc_basis === true ? 'ohlc' : tags?.ohlc_basis === false ? 'close-only' : 'n/a';
+
+  return (
+    <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', margin: '2px 0' }}>
+      <TagBadge label={costLabel} isUnknown={tags?.cost_ok == null} />
+      <TagBadge label={quoteLabel} isUnknown={tags?.quote_ok == null} />
+      <TagBadge label={orbLabel} isUnknown={tags?.orb_agree == null} />
+      <TagBadge label={ohlcLabel} isUnknown={tags?.ohlc_basis == null} />
+    </span>
+  );
+}
+
 function PickCard({ c, side, strongFrom }: { c: Pick; side: 'long' | 'short'; strongFrom: number }) {
   return (
     <li className="mf-tcard">
@@ -264,6 +311,7 @@ function TradeRow({ x, open, onToggle }: { x: Trade; open: boolean; onToggle: ()
           <b>{x.symbol}</b>
           <Chip kind={x.side === 'long' ? 'is-long' : 'is-short'}>{x.side}</Chip>
           <small>{t(x.entryAt)} · score {x.score}</small>
+          <TradeTagsBadges tags={x.tags} />
         </span>
         <span className="mf-ttrade__px">
           <small>Entry</small><b>{price(x.entry)}</b>
@@ -289,6 +337,7 @@ function TradeRow({ x, open, onToggle }: { x: Trade; open: boolean; onToggle: ()
             <div><dt>Targets</dt><dd>{price(lv.t1)} · {price(lv.t2)} · {price(lv.t3)}</dd></div>
             <div><dt>Opposite trade</dt><dd>{x.result.opp_tight?.r != null ? `${sgn(x.result.opp_tight.r)}${Math.abs(x.result.opp_tight.r).toFixed(2)}R` : '—'}</dd></div>
             <div><dt>Wider ladder</dt><dd>{wide && wide.outcome !== 'pending' ? `${statusLabel(wide).text}${wide.r != null ? ` · ${sgn(wide.r)}${Math.abs(wide.r).toFixed(2)}R` : ''}` : 'Open'}</dd></div>
+            <div><dt>Tags</dt><dd><TradeTagsBadges tags={x.tags} /></dd></div>
             {out === 'target_hit' && r.stop_after ? <div><dt>After target</dt><dd>stopped {t(r.stop_after)}</dd></div> : null}
           </dl>
           {x.reasons.length > 1 ? <ul className="mf-ttrade__why">{x.reasons.slice(1).map(w => <li key={w}>{w}</li>)}</ul> : null}
@@ -333,6 +382,9 @@ function MyTrades({ trades }: { trades: Trade[] }) {
         <Pills label="Side" value={side} onChange={setSide} options={[{ value: 'all', label: 'Long + short' }, { value: 'long', label: 'Long' }, { value: 'short', label: 'Short' }]} />
         <small>{shown.length} of {trades.length}</small>
       </div>
+      <p className="mf-thint" style={{ margin: '8px 0 16px 0', fontSize: '12px' }}>
+        Tags are recorded for research. They are not validated and do not change which trades are taken.
+      </p>
       {days.length === 0 ? <p className="mf-tempty">No trades match. A pick is logged the first time it enters the top 5 with a high enough score, inside the entry window.</p> : null}
       {days.map(([day, list]) => {
         const closed = list.filter(x => settled(x.result.tight));
@@ -480,6 +532,9 @@ function ShadowView({ data }: { data: TrackerData }) {
 
       <section className="mf-tsection">
         <h3>Shadow Trades &amp; Settled Outcomes <small>{trades.length} trades</small></h3>
+        <p className="mf-thint" style={{ margin: '4px 0 12px 0', fontSize: '12px' }}>
+          Tags are recorded for research. They are not validated and do not change which trades are taken.
+        </p>
         {trades.length === 0 ? (
           <p className="mf-tempty">No breakout triggers fired yet today. Waiting for trigger between 09:30 and 13:30 IST.</p>
         ) : (
@@ -493,6 +548,7 @@ function ShadowView({ data }: { data: TrackerData }) {
                       <b>{tr.symbol}</b>
                       <Chip kind={tr.side === 'long' ? 'is-long' : 'is-short'}>{tr.side}</Chip>
                       <small>{t(tr.entryAt)} · Cost {tr.costInR.toFixed(2)}R</small>
+                      <TradeTagsBadges tags={tr.tags} />
                     </span>
                     <span className="mf-ttrade__px"><small>Entry</small><b>{price(tr.entryPrice)}</b></span>
                     <span className="mf-ttrade__px"><small>Stop</small><b>{price(tr.stopPrice)}</b></span>
