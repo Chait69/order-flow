@@ -46,12 +46,13 @@ describe('the MCX profile', () => {
     expect(MCX_SESSION.isSessionTime(ist('2027-11-15', '23:55'))).toBe(false);
   });
 
-  it('records MCX calendar status as unverified against circular MCX/TRD/550/2026 blocker', () => {
-    expect(MCX_CALENDAR_STATUS.verified).toBe(false);
+  it('records that the 23:55 MCX close was confirmed from live ticks, not from the circular text', () => {
+    expect(MCX_CALENDAR_STATUS.verified).toBe(true);
+    expect(MCX_CALENDAR_STATUS.status).toContain('circular text not read');
     expect(MCX_CALENDAR_STATUS.circular).toBe('MCX/TRD/550/2026');
     expect(MCX_CALENDAR_STATUS.statedRange).toEqual(['2026-11-02', '2027-03-12']);
     expect(MCX_CALENDAR_STATUS.implementedRange).toEqual(['2026-11-02', '2027-03-13']);
-    expect(MCX_CALENDAR_STATUS.empiricalCheckPending).toBe(true);
+    expect(MCX_CALENDAR_STATUS.empiricalCheckPending).toBe(false);
   });
 
   it('follows the US clock change on the right Sundays (8 March and 1 November 2026)', () => {

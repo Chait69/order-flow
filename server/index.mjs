@@ -288,12 +288,12 @@ async function handle(req, res) {
       universe: universe.length,
       segments: { fno: main, mcx: statusOf(collectors.mcx) },
       mcxCalendarStatus: {
-        verified: false,
+        verified: true,
         circularId: "MCX/TRD/550/2026",
         statedRange: "2026-11-02 to 2027-03-12 (non-agri close 23:55)",
         implementedRange: "2026-11-02 to 2027-03-13 (non-agri close 23:55)",
-        empiricalCheckPending: "verify whether ticks cease at 23:30 or 23:55 during next session",
-        note: "MCX session times unverified (blocker: circular text unavailable via 403)"
+        empiricalCheckPending: false,
+        note: "MCX close 23:55 confirmed from live ticks on 2026-11-16; circular text not read (403)"
       }
     });
   }

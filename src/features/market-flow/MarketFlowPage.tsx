@@ -58,10 +58,9 @@ const UNIVERSES: Array<{ value: FlowUniverse; label: string; title: string }> = 
 
 /** The wordmark: Order Flow in the website's heading face, the Mr. Chartist dot, and who made it. */
 const BRAND = (
-  <a className="mf-brand" href="https://mrchartist.com/open-source/order-flow" target="_blank" rel="noreferrer" aria-label="Order Flow by Mr. Chartist">
+  <a className="mf-brand" href="https://mrchartist.com/open-source/order-flow" target="_blank" rel="noreferrer" aria-label="Order Flow">
     <span className="mf-brand__dot" aria-hidden="true" />
     <span className="mf-brand__name">Order <em>Flow</em></span>
-    <span className="mf-brand__by">by Mr. Chartist</span>
   </a>
 );
 
@@ -87,15 +86,6 @@ export function MarketFlowPage({ universe }: MarketFlowPageProps) {
     <>
       <CapsuleSegmented options={VIEWS} value={view} onChange={setView} ariaLabel="View" groupId="flow-view" size="page" className="ui-flow-universe" />
       <CapsuleSegmented options={UNIVERSES} value={scope} onChange={setScope} ariaLabel="Underlyings" groupId="flow-universe" size="page" className="ui-flow-universe" />
-      {scope === 'mcx' && (
-        <span
-          className="ui-mcx-unverified-note"
-          title="MCX/TRD/550/2026 unverified against circular text (blocker: circular text unavailable). Empirical check pending on session close 23:30 vs 23:55"
-          style={{ fontSize: '11px', color: '#f59e0b', alignSelf: 'center', whiteSpace: 'nowrap' }}
-        >
-          MCX session times unverified
-        </span>
-      )}
       <ThemeToggle onChange={theme => applyTheme(theme)} size="md" className="ui-flow-theme" />
     </>
   );

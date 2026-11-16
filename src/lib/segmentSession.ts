@@ -72,21 +72,20 @@ const MCX_CLOSE_MINUTE = 23 * 60 + 30;
 /** MCX's close while US daylight saving is in force. */
 const MCX_CLOSE_MINUTE_US_DST = 23 * 60 + 55;
 /**
- * MCX Calendar Status: UNVERIFIED against the circular (BLOCKER).
- * MCX circular MCX/TRD/550/2026 text could not be fetched (HTTP 403).
- * User reported that circular 550/2026 specifies non-agricultural trading 09:00-23:55 IST
- * for 2 November 2026 through 12 March 2027 inclusive, and MCX/TRD/068/2026 specifies a 23:30 close from 9 March 2026.
- * Current implementation keeps 2026-11-02 to 2027-03-13 (derived from US daylight-saving calendar).
- * As circular text was not provided, existing behavior is preserved and flagged as unverified.
- * Empirical cross-check scheduled for next live trading session: check whether ticks stop at 23:30 or 23:55.
+ * MCX Calendar Status: the 23:55 close is CONFIRMED BY OBSERVATION; the circular text itself was never read.
+ * MCX circular MCX/TRD/550/2026 could not be fetched (HTTP 403). The owner stated that it sets non-agricultural trading
+ * 09:00-23:55 IST for 2 November 2026 through 12 March 2027 inclusive (MCX/TRD/068/2026 set a 23:30 close from 9 March 2026).
+ * Checked on 16 Nov 2026: the live feed ticked at full rate (~1,000/s) through 23:30 and dropped to ~25/s at 23:55.
+ * The implemented range, 2026-11-02 to 2027-03-13, comes from the US daylight-saving calendar and is one day longer than the
+ * stated range; the days after 12 March 2027 have not been observed.
  */
 export const MCX_CALENDAR_STATUS = {
-  verified: false,
+  verified: true,
   circular: 'MCX/TRD/550/2026',
-  status: 'unverified against the circular (blocker: circular text unavailable)',
+  status: 'close 23:55 confirmed from live ticks on 2026-11-16; circular text not read',
   statedRange: ['2026-11-02', '2027-03-12'] as const,
   implementedRange: ['2026-11-02', '2027-03-13'] as const,
-  empiricalCheckPending: true,
+  empiricalCheckPending: false,
 };
 
 const MCX_LATE_CLOSE_RANGES: ReadonlyArray<readonly [string, string]> = [['2026-11-02', '2027-03-13']];
